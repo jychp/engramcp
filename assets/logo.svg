@@ -1,46 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0D1B2A"/>
-      <stop offset="100%" style="stop-color:#1B2838"/>
-    </linearGradient>
-    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#1B98E0"/>
-      <stop offset="100%" style="stop-color:#00E5FF"/>
-    </linearGradient>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 300" width="240" height="300">
 
-  <!-- Background circle -->
-  <circle cx="256" cy="256" r="240" fill="url(#bg)" stroke="url(#glow)" stroke-width="3"/>
+  <!-- Edges -->
+  <!-- Spine (very subtle rightward curve) -->
+  <line x1="58" y1="50" x2="62" y2="150" stroke="#78B5A2" stroke-width="6.5" stroke-linecap="round"/>
+  <line x1="62" y1="150" x2="64" y2="250" stroke="#78B5A2" stroke-width="6.5" stroke-linecap="round"/>
 
-  <!-- Graph nodes - representing the knowledge graph -->
-  <!-- Central node (Memory) -->
-  <circle cx="256" cy="220" r="28" fill="url(#glow)" opacity="0.9"/>
+  <!-- Top bar -->
+  <line x1="58" y1="50" x2="185" y2="47" stroke="#78B5A2" stroke-width="6.5" stroke-linecap="round"/>
 
-  <!-- Satellite nodes -->
-  <circle cx="160" cy="150" r="18" fill="#1B98E0" opacity="0.8"/>
-  <circle cx="352" cy="150" r="18" fill="#1B98E0" opacity="0.8"/>
-  <circle cx="140" cy="280" r="18" fill="#7C4DFF" opacity="0.8"/>
-  <circle cx="372" cy="280" r="18" fill="#7C4DFF" opacity="0.8"/>
-  <circle cx="200" cy="340" r="14" fill="#00C853" opacity="0.7"/>
-  <circle cx="312" cy="340" r="14" fill="#00C853" opacity="0.7"/>
-  <circle cx="256" cy="380" r="12" fill="#FFD600" opacity="0.7"/>
+  <!-- Middle bar (very slight downward tilt) -->
+  <line x1="62" y1="150" x2="170" y2="155" stroke="#78B5A2" stroke-width="6.5" stroke-linecap="round"/>
 
-  <!-- Edges connecting nodes -->
-  <line x1="256" y1="220" x2="160" y2="150" stroke="#1B98E0" stroke-width="2" opacity="0.5"/>
-  <line x1="256" y1="220" x2="352" y2="150" stroke="#1B98E0" stroke-width="2" opacity="0.5"/>
-  <line x1="256" y1="220" x2="140" y2="280" stroke="#7C4DFF" stroke-width="2" opacity="0.4"/>
-  <line x1="256" y1="220" x2="372" y2="280" stroke="#7C4DFF" stroke-width="2" opacity="0.4"/>
-  <line x1="140" y1="280" x2="200" y2="340" stroke="#00C853" stroke-width="1.5" opacity="0.3"/>
-  <line x1="372" y1="280" x2="312" y2="340" stroke="#00C853" stroke-width="1.5" opacity="0.3"/>
-  <line x1="200" y1="340" x2="256" y2="380" stroke="#FFD600" stroke-width="1.5" opacity="0.3"/>
-  <line x1="312" y1="340" x2="256" y2="380" stroke="#FFD600" stroke-width="1.5" opacity="0.3"/>
-  <line x1="160" y1="150" x2="352" y2="150" stroke="#1B98E0" stroke-width="1" opacity="0.2" stroke-dasharray="4,4"/>
+  <!-- Bottom bar -->
+  <line x1="64" y1="250" x2="185" y2="252" stroke="#78B5A2" stroke-width="6.5" stroke-linecap="round"/>
 
-  <!-- Brain/engram stylized paths -->
-  <path d="M 210 180 Q 230 160 256 165 Q 282 160 302 180" fill="none" stroke="#00E5FF" stroke-width="1.5" opacity="0.4"/>
-  <path d="M 195 210 Q 225 190 256 195 Q 287 190 317 210" fill="none" stroke="#00E5FF" stroke-width="1.5" opacity="0.3"/>
+  <!-- Nodes (randomized sizes + alternating colors) -->
+  <!-- Spine -->
+  <circle cx="58" cy="50" r="14" fill="#B0D9CC"/>
+  <circle cx="62" cy="150" r="11" fill="#78B5A2"/>
+  <circle cx="64" cy="250" r="16" fill="#78B5A2"/>
 
-  <!-- Text -->
-  <text x="256" y="445" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-weight="700" font-size="42" fill="#E0E1DD" letter-spacing="4">ENGRAMCP</text>
+  <!-- Bar endpoints -->
+  <circle cx="185" cy="47" r="8" fill="#78B5A2"/>
+  <circle cx="170" cy="155" r="12" fill="#B0D9CC"/>
+  <circle cx="185" cy="252" r="7" fill="#B0D9CC"/>
+
 </svg>
