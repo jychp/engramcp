@@ -1,7 +1,7 @@
 # MCP Interface — Design Document
 
 > **Layer**: 7 (`server.py`)
-> **Status**: Implemented (Sprint 1)
+> **Status**: Implemented
 > **API Contract**: Frozen
 
 ---
@@ -10,7 +10,7 @@
 
 The MCP interface is the only entry point for agents interacting with EngraMCP. It exposes three tools via FastMCP v2: **write**, **read**, and **correct**.
 
-All backend logic is mocked in Sprint 1 (module-level dict). Real stores replace it progressively in later sprints.
+All backend logic is currently mocked (module-level dict). Real stores replace it progressively as lower layers are implemented.
 
 ---
 
@@ -33,7 +33,7 @@ FastMCP v2 serializes Pydantic models automatically via `pydantic_core.to_jsonab
 
 ### Mock strategy
 
-A module-level `_working_memory: dict` in `server.py` acts as the backing store. A `_reset_working_memory()` function is exposed for test cleanup. This is the simplest possible mock — replaced by real `memory/working.py` in Sprint 2.
+A module-level `_working_memory: dict` in `server.py` acts as the backing store. A `_reset_working_memory()` function is exposed for test cleanup. This is the simplest possible mock — replaced by real `memory/working.py` when the Working Memory layer is implemented.
 
 ---
 
@@ -88,7 +88,7 @@ A module-level `_working_memory: dict` in `server.py` acts as the backing store.
 **Behavior**:
 - Validates `action` against `CorrectionAction` enum
 - Returns `status: "not_found"` if `target_id` doesn't exist
-- Returns `status: "applied"` on success (mock — real cascading logic in Sprint 5)
+- Returns `status: "applied"` on success (mock — real cascading logic when the Confidence Engine layer is implemented)
 
 ---
 
@@ -124,7 +124,7 @@ All tests use `fastmcp.Client(mcp)` — no direct function calls.
 
 ## Future Changes
 
-- Sprint 2: `_working_memory` dict replaced by `memory/working.py` (in-memory buffer with TTL, flush-to-disk)
-- Sprint 8: `get_memory` mock keyword matching replaced by `engine/retrieval.py` (graph traversal, scoring)
-- Sprint 5: `correct_memory` mock replaced by real confidence cascade
+- `_working_memory` dict replaced by `memory/working.py` (in-memory buffer with TTL, flush-to-disk)
+- `get_memory` mock keyword matching replaced by `engine/retrieval.py` (graph traversal, scoring)
+- `correct_memory` mock replaced by real confidence cascade via `engine/confidence.py`
 - Tool signatures and response shapes are **frozen** — changes require a version bump
