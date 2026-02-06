@@ -1,0 +1,70 @@
+repos:
+# ============================================================================
+# General checks (all file types)
+# ============================================================================
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+    -   id: check-executables-have-shebangs
+    -   id: check-merge-conflict
+    -   id: check-vcs-permalinks
+    -   id: check-yaml
+        exclude: ^external/
+    -   id: end-of-file-fixer
+        exclude: ^external/
+    -   id: trailing-whitespace
+        exclude: ^external/
+
+# ============================================================================
+# Python checks
+# ============================================================================
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+    -   id: check-docstring-first
+        files: ^src/
+    -   id: debug-statements
+        files: ^src/
+
+-   repo: https://github.com/pycqa/isort
+    rev: 7.0.0
+    hooks:
+    -   id: isort
+        files: ^src/
+
+-   repo: https://github.com/psf/black-pre-commit-mirror
+    rev: 26.1.0
+    hooks:
+    -   id: black
+        files: ^src/
+
+-   repo: https://github.com/pycqa/flake8
+    rev: 7.3.0
+    hooks:
+    -   id: flake8
+        files: ^src/
+
+-   repo: https://github.com/asottile/pyupgrade
+    rev: v3.21.2
+    hooks:
+    -   id: pyupgrade
+        args: [--py312-plus]
+        files: ^src/
+
+-   repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.14.1
+    hooks:
+    -   id: mypy
+        files: ^src/
+        args:
+        - --config-file=pyproject.toml
+        - src/
+        additional_dependencies:
+        - types-PyYAML
+        pass_filenames: false
+
+-   repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.5.24
+    hooks:
+    -   id: uv-lock
+        files: ^pyproject.toml$

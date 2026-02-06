@@ -1,0 +1,52 @@
+[project]
+name = "engramcp"
+description = "A biomimetic memory engine for LLMs, exposed via MCP."
+authors = [
+    { name = "Jeremy Chapeau", email = "jeremy.chapeau@gmail.com" },
+]
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.13"
+dependencies = [
+    "fastmcp>=2.0.0,<3.0",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/jychp/engramcp"
+Download = "https://github.com/jychp/engramcp/releases"
+"Bug Report" = "https://github.com/jychp/engramcp/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=4.0",
+    "mypy>=1.0",
+    "pre-commit>=4.2.0",
+]
+
+[build-system]
+requires = [
+    "setuptools",
+    "setuptools-scm",
+    "wheel",
+]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+write_to = "src/engramcp/_version.py"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = false
+warn_unused_ignores = true
+ignore_missing_imports = true
+no_implicit_optional = false
