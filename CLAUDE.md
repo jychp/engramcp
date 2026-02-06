@@ -40,6 +40,7 @@ When exploring external projects for patterns or reference, clone them into `ext
 | [Deep Dives](docs/drafts/deep-dives.md) | DD1: Entity Resolution, DD2: get_memory format, DD3: Concept Emergence |
 | [Layer Architecture](docs/design/layer-architecture.md) | 8-layer decomposition, data flows, mock replacement strategy |
 | [MCP Interface](docs/design/mcp-interface.md) | Layer 7 design: 3 tools, Pydantic models, testing strategy, frozen contract |
+| [Working Memory](docs/design/working-memory.md) | Layer 1 design: Redis-backed buffer, MemoryFragment model, keyword search |
 
 ---
 
@@ -63,7 +64,7 @@ Agent → correct_memory → [Graph mutations + cascade]
 | 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline, LLM extraction |
 | 3 | `engine/confidence.py` | NATO rating, propagation, corroboration |
 | 2 | `graph/store.py`, `graph/schema.py` | Neo4j CRUD, ontology, constraints |
-| 1 | `memory/working.py` | In-memory buffer, TTL, flush-to-disk |
+| 1 | `memory/working.py` | Redis-backed buffer, TTL, keyword search (✅ Sprint 2) |
 | 0 | `models/` | Schema, indexes, constraints definitions |
 
 ### Stack
@@ -72,6 +73,7 @@ Agent → correct_memory → [Graph mutations + cascade]
 |---|---|
 | Language | Python 3.13+ |
 | MCP Server | FastMCP v2 |
+| Working Memory | Redis (testcontainers for tests) |
 | Graph Database | Neo4j (testcontainers for tests) |
 | Test Framework | pytest |
 | LLM (consolidation) | Configurable (provider/model in config) |
@@ -91,11 +93,10 @@ src/engramcp/
 │   ├── nodes.py            # Node type definitions
 │   ├── relations.py        # Relationship type definitions
 │   ├── confidence.py       # NATO rating model
-│   └── agent.py            # Agent fingerprinting
+│   └── agent.py            # Agent fingerprinting (✅ Sprint 2)
 ├── memory/                 # Working memory
 │   ├── __init__.py
-│   ├── working.py          # In-memory buffer
-│   └── persistence.py      # Flush-to-disk / restore
+│   └── working.py          # Redis-backed buffer, MemoryFragment model (✅ Sprint 2)
 ├── graph/                  # Neo4j layer
 │   ├── __init__.py
 │   ├── store.py            # CRUD operations
@@ -126,7 +127,7 @@ src/engramcp/
 - **TDD outside-in**: tests written before implementation
 - **Linting**: black, flake8, isort, mypy, pyupgrade (pre-commit)
 - **Async**: pytest-asyncio with `asyncio_mode = "auto"`
-- **Testing**: testcontainers for Neo4j (session-scoped fixture)
+- **Testing**: testcontainers for Neo4j and Redis (session-scoped fixtures)
 - **Confidence**: NATO two-dimensional rating (letter = source reliability, number = credibility)
 - **Confidence on relations, not nodes**: same fact can have different ratings from different sources
 - **DDD (Domain-Driven Design)**: each domain has bounded contexts with `models/`, `memory/`, `graph/`, `engine/`, `audit/` modules. Domain logic stays in its module; cross-cutting concerns use explicit interfaces.
