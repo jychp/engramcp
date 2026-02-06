@@ -38,6 +38,7 @@ When exploring external projects for patterns or reference, clone them into `ext
 | [Ontology Schema](docs/drafts/ontology-schema.md) | Neo4j node types, relationships, indexes, constraints |
 | [Action Plan](docs/drafts/action-plan.md) | TDD sprint plan, layer decomposition, repo structure |
 | [Deep Dives](docs/drafts/deep-dives.md) | DD1: Entity Resolution, DD2: get_memory format, DD3: Concept Emergence |
+| [MCP Interface](docs/design/mcp-interface.md) | Layer 7 design: 3 tools, Pydantic models, testing strategy, frozen contract |
 
 ---
 
