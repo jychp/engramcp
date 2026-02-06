@@ -9,6 +9,8 @@ license = "Apache-2.0"
 requires-python = ">=3.13"
 dependencies = [
     "fastmcp>=2.0.0,<3.0",
+    "neo4j>=5.0,<6.0",
+    "pydantic>=2.0,<3.0",
 ]
 dynamic = ["version"]
 
@@ -24,6 +26,7 @@ dev = [
     "pytest-cov>=4.0",
     "mypy>=1.0",
     "pre-commit>=4.2.0",
+    "testcontainers>=4.0",
 ]
 
 [build-system]
