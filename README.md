@@ -40,11 +40,59 @@ uv sync
 pre-commit install
 ```
 
+## Quick Start
+
+EngraMCP exposes three MCP tools:
+
+### `send_memory` — Write
+
+Ingest a memory into the system.
+
+```json
+{
+  "content": "A was on the flight to Virgin Islands on March 15",
+  "source": {
+    "type": "court_document",
+    "ref": "https://example.com/doc.pdf",
+    "citation": "page 47, line 12"
+  },
+  "confidence_hint": "B",
+  "agent_id": "analyst_agent_1"
+}
+```
+
+### `get_memory` — Read
+
+Retrieve relevant memories with causal reasoning.
+
+```json
+{
+  "query": "Who traveled with Epstein to the Virgin Islands?",
+  "max_depth": 3,
+  "min_confidence": "D4",
+  "compact": false
+}
+```
+
+Returns structured `memories[]`, `contradictions[]`, and `meta{}`.
+
+### `correct_memory` — Correct
+
+Correct the knowledge graph: contest, annotate, merge/split entities, reclassify.
+
+```json
+{
+  "target_id": "mem_a1b2c3",
+  "action": "contest",
+  "payload": { "reason": "Source unreliable" }
+}
+```
+
 ## Development
 
 ```bash
 # Run tests
-pytest
+uv run pytest
 
 # Run linting
 pre-commit run --all-files
