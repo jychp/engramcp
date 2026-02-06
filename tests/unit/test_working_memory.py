@@ -11,9 +11,9 @@ import time
 
 import pytest
 
-from engramcp.memory.working import MemoryFragment
-from engramcp.memory.working import WorkingMemory
-from engramcp.models.agent import agent_fingerprint
+from engramcp.memory import MemoryFragment
+from engramcp.memory import WorkingMemory
+from engramcp.models import agent_fingerprint
 
 
 # ---------------------------------------------------------------------------

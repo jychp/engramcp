@@ -11,16 +11,16 @@ import uuid
 from fastmcp import FastMCP
 from redis.asyncio import Redis  # type: ignore[import-untyped]
 
-from engramcp.memory.working import MemoryFragment
-from engramcp.memory.working import WorkingMemory
-from engramcp.models.agent import agent_fingerprint
-from engramcp.models.mcp import CorrectionAction
-from engramcp.models.mcp import CorrectMemoryResult
-from engramcp.models.mcp import GetMemoryResult
-from engramcp.models.mcp import MemoryEntry
-from engramcp.models.mcp import MetaInfo
-from engramcp.models.mcp import SendMemoryResult
-from engramcp.models.mcp import SourceEntry
+from engramcp.memory import MemoryFragment
+from engramcp.memory import WorkingMemory
+from engramcp.models import agent_fingerprint
+from engramcp.models.schemas import CorrectionAction
+from engramcp.models.schemas import CorrectMemoryResult
+from engramcp.models.schemas import GetMemoryResult
+from engramcp.models.schemas import MemoryEntry
+from engramcp.models.schemas import MetaInfo
+from engramcp.models.schemas import SendMemoryResult
+from engramcp.models.schemas import SourceEntry
 
 mcp = FastMCP("EngraMCP")
 

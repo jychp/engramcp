@@ -1,4 +1,4 @@
-"""Redis-backed working memory buffer.
+"""Redis-backed working memory store.
 
 Fragments are stored as JSON strings keyed by ``engramcp:fragment:{id}``.
 A sorted set ``engramcp:recency`` tracks insertion order (score = timestamp).
@@ -8,13 +8,12 @@ Sets ``engramcp:keyword:{word}`` enable simple keyword search.
 from __future__ import annotations
 
 import re
-import uuid
 from collections.abc import Awaitable
 from collections.abc import Callable
 
-from pydantic import BaseModel
-from pydantic import Field
 from redis.asyncio import Redis  # type: ignore[import-untyped]
+
+from engramcp.memory.schemas import MemoryFragment
 
 # ---------------------------------------------------------------------------
 # Key prefixes
@@ -26,7 +25,7 @@ _RECENCY_KEY = f"{_PREFIX}:recency"
 _KEYWORD_KEY = f"{_PREFIX}:keyword"
 
 # ---------------------------------------------------------------------------
-# Confidence helpers (moved from server.py)
+# Confidence helpers
 # ---------------------------------------------------------------------------
 
 _RELIABILITY_ORDER = "ABCDEF"
@@ -75,28 +74,6 @@ _WORD_RE = re.compile(r"[a-z0-9]+")
 def _tokenize(text: str) -> set[str]:
     """Extract lowercase alphanumeric tokens from *text*."""
     return set(_WORD_RE.findall(text.lower()))
-
-
-# ---------------------------------------------------------------------------
-# MemoryFragment
-# ---------------------------------------------------------------------------
-
-
-class MemoryFragment(BaseModel):
-    """A single memory held in working memory."""
-
-    id: str = Field(default_factory=lambda: f"mem_{uuid.uuid4().hex[:8]}")
-    content: str
-    type: str = "Fact"
-    dynamic_type: str | None = None
-    confidence: str | None = None
-    properties: dict = Field(default_factory=dict)
-    participants: list = Field(default_factory=list)
-    causal_chain: list = Field(default_factory=list)
-    sources: list[dict] = Field(default_factory=list)
-    agent_id: str | None = None
-    agent_fingerprint: str | None = None
-    timestamp: float = Field(default_factory=lambda: __import__("time").time())
 
 
 # ---------------------------------------------------------------------------

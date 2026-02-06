@@ -87,16 +87,16 @@ src/engramcp/
 ├── __init__.py
 ├── server.py               # FastMCP server, 3 tools (✅ Sprint 1)
 ├── config.py               # LLM provider/model, thresholds, paths
-├── models/                 # Data models
-│   ├── __init__.py
-│   ├── mcp.py              # Pydantic input/output schemas for MCP tools (✅ Sprint 1)
+├── models/                 # Shared data models
+│   ├── __init__.py         # Agent fingerprinting + domain logic
+│   ├── schemas.py          # Pydantic input/output schemas for MCP tools (✅ Sprint 1)
 │   ├── nodes.py            # Node type definitions
 │   ├── relations.py        # Relationship type definitions
-│   ├── confidence.py       # NATO rating model
-│   └── agent.py            # Agent fingerprinting (✅ Sprint 2)
+│   └── confidence.py       # NATO rating model
 ├── memory/                 # Working memory
-│   ├── __init__.py
-│   └── working.py          # Redis-backed buffer, MemoryFragment model (✅ Sprint 2)
+│   ├── __init__.py         # Domain API, re-exports
+│   ├── schemas.py          # MemoryFragment model (✅ Sprint 2)
+│   └── store.py            # Redis-backed buffer, keyword search (✅ Sprint 2)
 ├── graph/                  # Neo4j layer
 │   ├── __init__.py
 │   ├── store.py            # CRUD operations
@@ -131,6 +131,7 @@ src/engramcp/
 - **Confidence**: NATO two-dimensional rating (letter = source reliability, number = credibility)
 - **Confidence on relations, not nodes**: same fact can have different ratings from different sources
 - **DDD (Domain-Driven Design)**: each domain has bounded contexts with `models/`, `memory/`, `graph/`, `engine/`, `audit/` modules. Domain logic stays in its module; cross-cutting concerns use explicit interfaces.
+- **Domain package structure**: each domain follows `schemas.py` (Pydantic models), `store.py` (DB access), `__init__.py` (business logic + re-exports). External code imports from the domain package (e.g. `from engramcp.memory import MemoryFragment`).
 
 ---
 
