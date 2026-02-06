@@ -38,6 +38,8 @@ When exploring external projects for patterns or reference, clone them into `ext
 | [Ontology Schema](docs/drafts/ontology-schema.md) | Neo4j node types, relationships, indexes, constraints |
 | [Action Plan](docs/drafts/action-plan.md) | TDD sprint plan, layer decomposition, repo structure |
 | [Deep Dives](docs/drafts/deep-dives.md) | DD1: Entity Resolution, DD2: get_memory format, DD3: Concept Emergence |
+| [Layer Architecture](docs/design/layer-architecture.md) | 8-layer decomposition, data flows, mock replacement strategy |
+| [MCP Interface](docs/design/mcp-interface.md) | Layer 7 design: 3 tools, Pydantic models, testing strategy, frozen contract |
 
 ---
 
@@ -81,22 +83,27 @@ Agent → correct_memory → [Graph mutations + cascade]
 ```
 src/engramcp/
 ├── __init__.py
-├── server.py               # FastMCP server, 3 tools
+├── server.py               # FastMCP server, 3 tools (✅ Sprint 1)
 ├── config.py               # LLM provider/model, thresholds, paths
 ├── models/                 # Data models
+│   ├── __init__.py
+│   ├── mcp.py              # Pydantic input/output schemas for MCP tools (✅ Sprint 1)
 │   ├── nodes.py            # Node type definitions
 │   ├── relations.py        # Relationship type definitions
 │   ├── confidence.py       # NATO rating model
 │   └── agent.py            # Agent fingerprinting
 ├── memory/                 # Working memory
+│   ├── __init__.py
 │   ├── working.py          # In-memory buffer
 │   └── persistence.py      # Flush-to-disk / restore
 ├── graph/                  # Neo4j layer
+│   ├── __init__.py
 │   ├── store.py            # CRUD operations
 │   ├── schema.py           # Index/constraint init
 │   ├── entity_resolution.py
 │   └── traceability.py     # Source chain management
 ├── engine/                 # Processing engines
+│   ├── __init__.py
 │   ├── confidence.py       # Confidence calculation & propagation
 │   ├── consolidation.py    # Async batch pipeline
 │   ├── extraction.py       # LLM extraction adapter
@@ -106,6 +113,7 @@ src/engramcp/
 │   ├── prompt_builder.py   # Dynamic extraction prompt
 │   └── retrieval.py        # Graph traversal & scoring
 └── audit/
+    ├── __init__.py
     └── logger.py           # JSONL audit log writer
 ```
 
@@ -114,12 +122,14 @@ src/engramcp/
 ## Code Patterns & Conventions
 
 - **Language**: All code, comments, documentation, PRs, commits, and issues must be written in **English (US)**
+- **Commits**: Never mention sprints in commit messages (internal concept). Use conventional commits (`chore:`, `feat:`, `fix:`, `docs:`, `refactor:`, `test:`)
 - **TDD outside-in**: tests written before implementation
 - **Linting**: black, flake8, isort, mypy, pyupgrade (pre-commit)
 - **Async**: pytest-asyncio with `asyncio_mode = "auto"`
 - **Testing**: testcontainers for Neo4j (session-scoped fixture)
 - **Confidence**: NATO two-dimensional rating (letter = source reliability, number = credibility)
 - **Confidence on relations, not nodes**: same fact can have different ratings from different sources
+- **DDD (Domain-Driven Design)**: each domain has bounded contexts with `models/`, `memory/`, `graph/`, `engine/`, `audit/` modules. Domain logic stays in its module; cross-cutting concerns use explicit interfaces.
 
 ---
 

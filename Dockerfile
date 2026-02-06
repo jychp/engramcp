@@ -4,7 +4,7 @@
 FROM python:3.13-slim@sha256:49b618b8afc2742b94fa8419d8f4d3b337f111a0527d417a1db97d4683cb71a6 AS deps
 WORKDIR /app
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.9.29@sha256:db9370c2b0b837c74f454bea914343da9f29232035aa7632a1b14dc03add9edb /uv /uvx /bin/
 
 # Only copy lock/manifest so Docker cache stays hot unless deps change
 COPY pyproject.toml uv.lock ./
@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM python:3.13-slim@sha256:49b618b8afc2742b94fa8419d8f4d3b337f111a0527d417a1db97d4683cb71a6 AS final
 WORKDIR /app
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.9.29@sha256:db9370c2b0b837c74f454bea914343da9f29232035aa7632a1b14dc03add9edb /uv /uvx /bin/
 
 # Bring in the ready-to-go dependency venv
 COPY --from=deps /app/.venv /app/.venv
