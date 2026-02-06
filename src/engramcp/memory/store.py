@@ -158,9 +158,12 @@ class WorkingMemory:
         query: str,
         *,
         min_confidence: str = "F6",
-        limit: int = 20,
     ) -> list[MemoryFragment]:
-        """Search fragments by keyword with confidence filtering."""
+        """Search fragments by keyword with confidence filtering.
+
+        Returns **all** matching fragments sorted by recency (newest first).
+        The caller is responsible for applying a ``limit`` if needed.
+        """
         words = _tokenize(query)
         if not words:
             return []
@@ -175,29 +178,48 @@ class WorkingMemory:
         if not candidate_ids:
             return []
 
-        # Fetch and filter
+        # Fetch and filter (prune stale recency entries lazily)
+        stale_ids: list[str] = []
         results: list[MemoryFragment] = []
         for cid in candidate_ids:
             fid = cid.decode() if isinstance(cid, bytes) else cid
             fragment = await self.get(fid)
-            if fragment and _confidence_passes(fragment.confidence, min_confidence):
+            if fragment is None:
+                stale_ids.append(fid)
+            elif _confidence_passes(fragment.confidence, min_confidence):
                 results.append(fragment)
+
+        if stale_ids:
+            pipe = self._redis.pipeline()
+            for fid in stale_ids:
+                pipe.zrem(_RECENCY_KEY, fid)
+            await pipe.execute()
 
         # Sort by recency (newest first)
         results.sort(key=lambda f: f.timestamp, reverse=True)
-        return results[:limit]
+        return results
 
     async def get_recent(self, limit: int = 20) -> list[MemoryFragment]:
         """Return the most recent fragments, newest first."""
         # ZREVRANGE returns highest scores first
         ids = await self._redis.zrevrange(_RECENCY_KEY, 0, limit - 1)
 
+        stale_ids: list[str] = []
         results: list[MemoryFragment] = []
         for raw_id in ids:
             fid = raw_id.decode() if isinstance(raw_id, bytes) else raw_id
             fragment = await self.get(fid)
             if fragment:
                 results.append(fragment)
+            else:
+                stale_ids.append(fid)
+
+        if stale_ids:
+            pipe = self._redis.pipeline()
+            for fid in stale_ids:
+                pipe.zrem(_RECENCY_KEY, fid)
+            await pipe.execute()
+
         return results
 
     async def count(self) -> int:

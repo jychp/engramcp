@@ -142,7 +142,7 @@ async def get_memory(
         compact: Compact mode — omit sources, chains, participants.
     """
     wm = _get_wm()
-    matches = await wm.search(query, min_confidence=min_confidence, limit=limit)
+    matches = await wm.search(query, min_confidence=min_confidence)
 
     total_found = len(matches)
     truncated = total_found > limit
