@@ -1,7 +1,7 @@
 """EngraMCP — FastMCP v2 server with three MCP tools.
 
-Mock implementation for Sprint 1: backend logic uses a module-level dict
-as working memory.  Real stores replace this in Sprint 2+.
+Tools delegate to ``WorkingMemory`` (Redis-backed) for storage and
+search.  Call ``configure(redis_url=...)`` before using the server.
 """
 
 from __future__ import annotations
@@ -9,7 +9,11 @@ from __future__ import annotations
 import uuid
 
 from fastmcp import FastMCP
+from redis.asyncio import Redis  # type: ignore[import-untyped]
 
+from engramcp.memory.working import MemoryFragment
+from engramcp.memory.working import WorkingMemory
+from engramcp.models.agent import agent_fingerprint
 from engramcp.models.mcp import CorrectionAction
 from engramcp.models.mcp import CorrectMemoryResult
 from engramcp.models.mcp import GetMemoryResult
@@ -21,55 +25,46 @@ from engramcp.models.mcp import SourceEntry
 mcp = FastMCP("EngraMCP")
 
 # ---------------------------------------------------------------------------
-# Mock working memory (replaced in Sprint 2)
+# Working memory instance (set via configure())
 # ---------------------------------------------------------------------------
 
-_working_memory: dict[str, dict] = {}
+_wm: WorkingMemory | None = None
 
 
-def _reset_working_memory() -> None:
-    """Clear working memory — exposed for test cleanup."""
-    _working_memory.clear()
+async def configure(
+    redis_url: str = "redis://localhost:6379",
+    *,
+    ttl: int = 3600,
+    max_size: int = 1000,
+    flush_threshold: int | None = None,
+    on_flush=None,
+) -> None:
+    """Initialize the working memory backend.
 
-
-# ---------------------------------------------------------------------------
-# Confidence helpers
-# ---------------------------------------------------------------------------
-
-_RELIABILITY_ORDER = "ABCDEF"
-
-
-def _confidence_passes(confidence: str | None, min_confidence: str) -> bool:
-    """Check whether *confidence* meets or exceeds *min_confidence*.
-
-    The NATO rating is ``<letter><number>`` (e.g. ``B2``).
-    Letter A is best (index 0), F is worst (index 5).
-    Number 1 is best, 6 is worst.
-
-    A memory passes the filter when its letter is <= the filter letter
-    **or** its number is <= the filter number.  The loosest filter is
-    ``F6`` which lets everything through.
+    Must be called before the MCP tools can function.
     """
-    if min_confidence == "F6":
-        return True
-    if not confidence or len(confidence) < 2:
-        return False
+    global _wm
+    client = Redis.from_url(redis_url)
+    _wm = WorkingMemory(
+        client,
+        ttl=ttl,
+        max_size=max_size,
+        flush_threshold=flush_threshold,
+        on_flush=on_flush,
+    )
 
-    mem_letter = confidence[0].upper()
-    mem_number = confidence[1:]
 
-    flt_letter = min_confidence[0].upper()
-    flt_number = min_confidence[1:]
+async def _reset_working_memory() -> None:
+    """Clear working memory — exposed for test cleanup."""
+    if _wm is not None:
+        await _wm.clear()
 
-    try:
-        letter_ok = _RELIABILITY_ORDER.index(mem_letter) <= _RELIABILITY_ORDER.index(
-            flt_letter
-        )
-        number_ok = int(mem_number) <= int(flt_number)
-    except (ValueError, IndexError):
-        return False
 
-    return letter_ok or number_ok
+def _get_wm() -> WorkingMemory:
+    """Return the working memory instance or raise."""
+    if _wm is None:
+        raise RuntimeError("Working memory not configured. Call configure() first.")
+    return _wm
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +73,7 @@ def _confidence_passes(confidence: str | None, min_confidence: str) -> bool:
 
 
 @mcp.tool
-def send_memory(
+async def send_memory(
     content: str,
     source: dict | None = None,
     confidence_hint: str | None = None,
@@ -92,26 +87,15 @@ def send_memory(
         confidence_hint: Source reliability hint (letter A-F).
         agent_id: Identifier of the calling agent.
     """
+    wm = _get_wm()
     memory_id = f"mem_{uuid.uuid4().hex[:8]}"
 
     # Default confidence: hint letter + uncorroborated number
     confidence = f"{confidence_hint or 'F'}3"
 
-    entry: dict = {
-        "id": memory_id,
-        "type": "Fact",
-        "dynamic_type": None,
-        "content": content,
-        "confidence": confidence,
-        "properties": {},
-        "participants": [],
-        "causal_chain": [],
-        "sources": [],
-        "agent_id": agent_id,
-    }
-
+    sources: list[dict] = []
     if source:
-        entry["sources"].append(
+        sources.append(
             {
                 "id": f"src_{uuid.uuid4().hex[:8]}",
                 "type": source.get("type", "unknown"),
@@ -122,12 +106,22 @@ def send_memory(
             }
         )
 
-    _working_memory[memory_id] = entry
+    fragment = MemoryFragment(
+        id=memory_id,
+        content=content,
+        type="Fact",
+        confidence=confidence,
+        sources=sources,
+        agent_id=agent_id,
+        agent_fingerprint=agent_fingerprint(agent_id),
+    )
+
+    await wm.store(fragment)
     return SendMemoryResult(memory_id=memory_id)
 
 
 @mcp.tool
-def get_memory(
+async def get_memory(
     query: str,
     max_depth: int = 3,
     min_confidence: str = "F6",
@@ -147,14 +141,8 @@ def get_memory(
         limit: Max memories returned.
         compact: Compact mode — omit sources, chains, participants.
     """
-    # Simple keyword matching on working memory (mock)
-    query_words = set(query.lower().split())
-    matches: list[dict] = []
-    for entry in _working_memory.values():
-        content_words = set(entry["content"].lower().split())
-        if query_words & content_words:
-            if _confidence_passes(entry.get("confidence"), min_confidence):
-                matches.append(entry)
+    wm = _get_wm()
+    matches = await wm.search(query, min_confidence=min_confidence, limit=limit)
 
     total_found = len(matches)
     truncated = total_found > limit
@@ -163,19 +151,19 @@ def get_memory(
     memories: list[MemoryEntry] = []
     for m in matches:
         sources = []
-        if not compact and include_sources and m.get("sources"):
-            sources = [SourceEntry(**s) for s in m["sources"]]
+        if not compact and include_sources and m.sources:
+            sources = [SourceEntry(**s) for s in m.sources]
 
         memories.append(
             MemoryEntry(
-                id=m["id"],
-                type=m["type"],
-                dynamic_type=m.get("dynamic_type"),
-                content=m["content"],
-                confidence=m.get("confidence"),
-                properties=m.get("properties", {}),
-                participants=[] if compact else m.get("participants", []),
-                causal_chain=[] if compact else m.get("causal_chain", []),
+                id=m.id,
+                type=m.type,
+                dynamic_type=m.dynamic_type,
+                content=m.content,
+                confidence=m.confidence,
+                properties=m.properties,
+                participants=[] if compact else m.participants,
+                causal_chain=[] if compact else m.causal_chain,
                 sources=sources,
             )
         )
@@ -199,7 +187,7 @@ def get_memory(
 
 
 @mcp.tool
-def correct_memory(
+async def correct_memory(
     target_id: str,
     action: str,
     payload: dict | None = None,
@@ -212,11 +200,13 @@ def correct_memory(
                 split_entity, reclassify.
         payload: Action-specific data.
     """
+    wm = _get_wm()
+
     # Validate action
     action_enum = CorrectionAction(action)
 
     # Check target exists
-    if target_id not in _working_memory:
+    if not await wm.exists(target_id):
         return CorrectMemoryResult(
             target_id=target_id,
             action=action_enum,

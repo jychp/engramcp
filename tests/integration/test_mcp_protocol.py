@@ -12,14 +12,16 @@ import pytest
 from fastmcp import Client
 
 from engramcp.server import _reset_working_memory
+from engramcp.server import configure
 from engramcp.server import mcp
 
 
 @pytest.fixture(autouse=True)
-def _clean():
-    _reset_working_memory()
+async def _clean(redis_container):
+    await configure(redis_url=redis_container)
+    await _reset_working_memory()
     yield
-    _reset_working_memory()
+    await _reset_working_memory()
 
 
 def _parse(result) -> dict:
