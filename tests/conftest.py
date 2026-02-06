@@ -1,7 +1,7 @@
-"""Root conftest — session-scoped Neo4j testcontainers fixture.
+"""Root conftest — session-scoped testcontainer fixtures.
 
-Neo4j Community Edition container, shared across the entire test session.
-Individual tests clean the database via the autouse ``clean_neo4j`` fixture.
+Neo4j Community Edition and Redis 7 containers, shared across the entire
+test session.  Individual tests clean each database via autouse fixtures.
 """
 
 from __future__ import annotations
@@ -10,8 +10,15 @@ import asyncio
 import time
 
 import pytest
+import redis as sync_redis
 from neo4j import AsyncGraphDatabase
+from redis.asyncio import Redis
 from testcontainers.core.container import DockerContainer
+
+
+# ---------------------------------------------------------------------------
+# Neo4j
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="session")
@@ -62,3 +69,53 @@ async def clean_neo4j(neo4j_driver):
     async with neo4j_driver.session() as session:
         await session.run("MATCH (n) DETACH DELETE n")
     yield
+
+
+# ---------------------------------------------------------------------------
+# Redis
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def redis_container():
+    """Spin up a Redis 7 container and yield its URL.
+
+    Session-scoped: one container for the entire test run.
+    """
+    container = DockerContainer("redis:7-alpine").with_exposed_ports(6379)
+    with container as c:
+        host = c.get_container_host_ip()
+        port = c.get_exposed_port(6379)
+        url = f"redis://{host}:{port}"
+
+        # Wait for Redis readiness
+        r = sync_redis.Redis(host=host, port=int(port))
+        max_attempts = 30
+        for attempt in range(max_attempts):
+            try:
+                r.ping()
+                r.close()
+                break
+            except Exception:
+                if attempt == max_attempts - 1:
+                    r.close()
+                    raise
+                time.sleep(1)
+
+        yield url
+
+
+@pytest.fixture()
+async def redis_client(redis_container):
+    """Yield an async Redis client connected to the test container."""
+    client = Redis.from_url(redis_container)
+    yield client
+    await client.aclose()
+
+
+@pytest.fixture(autouse=True)
+async def clean_redis(redis_client):
+    """Flush Redis between tests."""
+    await redis_client.flushdb()
+    yield
+    await redis_client.flushdb()
