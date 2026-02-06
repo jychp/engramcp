@@ -249,6 +249,29 @@ class TestGetMemory:
         assert "truncated" in data["meta"]
         assert isinstance(data["meta"]["truncated"], bool)
 
+    async def test_include_sources_false_omits_sources(self, mcp_client):
+        await mcp_client.call_tool(
+            "send_memory",
+            {
+                "content": "A flew to St. Thomas",
+                "source": {
+                    "type": "flight_log",
+                    "ref": "https://example.com/log.pdf",
+                    "citation": "page 3",
+                },
+            },
+        )
+        result = await mcp_client.call_tool(
+            "get_memory", {"query": "flew", "include_sources": False}
+        )
+        data = _parse(result)
+        assert len(data["memories"]) > 0
+        mem = data["memories"][0]
+        assert mem["sources"] == []
+        # Other fields should still be present
+        assert "participants" in mem
+        assert "causal_chain" in mem
+
     async def test_compact_mode_omits_sources_and_chains(self, mcp_client):
         await mcp_client.call_tool(
             "send_memory",

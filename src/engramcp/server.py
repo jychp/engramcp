@@ -163,7 +163,7 @@ def get_memory(
     memories: list[MemoryEntry] = []
     for m in matches:
         sources = []
-        if not compact and m.get("sources"):
+        if not compact and include_sources and m.get("sources"):
             sources = [SourceEntry(**s) for s in m["sources"]]
 
         memories.append(
