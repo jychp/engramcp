@@ -308,9 +308,24 @@ class TestGetMemory:
             "get_memory", {"query": "rumor", "min_confidence": "A1"}
         )
         data = _parse(result)
-        # Should filter out the low-confidence memory
+        # Should filter out the low-confidence memory (E3 fails both A and 1)
         assert data["meta"]["total_found"] == 0
         assert len(data["memories"]) == 0
+
+    async def test_confidence_filter_uses_or_semantics(self, mcp_client):
+        # A3: reliable source (A), but uncorroborated info (3)
+        await mcp_client.call_tool(
+            "send_memory",
+            {"content": "Reliable uncorroborated claim", "confidence_hint": "A"},
+        )
+        # Filter D1: the memory's letter A passes (A <= D),
+        # even though number 3 fails (3 > 1). OR semantics → included.
+        result = await mcp_client.call_tool(
+            "get_memory",
+            {"query": "Reliable uncorroborated", "min_confidence": "D1"},
+        )
+        data = _parse(result)
+        assert data["meta"]["total_found"] == 1
 
 
 # -----------------------------------------------------------------------

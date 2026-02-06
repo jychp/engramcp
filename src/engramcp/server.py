@@ -69,7 +69,7 @@ def _confidence_passes(confidence: str | None, min_confidence: str) -> bool:
     except (ValueError, IndexError):
         return False
 
-    return letter_ok and number_ok
+    return letter_ok or number_ok
 
 
 # ---------------------------------------------------------------------------
