@@ -23,6 +23,7 @@ A structured memory engine for LLMs that goes beyond flat vector-based RAG. Engr
 |---|---|
 | Language | Python 3.13+ |
 | MCP Server | [FastMCP](https://github.com/jlowin/fastmcp) v2 |
+| Working Memory | Redis |
 | Graph Database | Neo4j |
 | Test Framework | pytest + testcontainers |
 
