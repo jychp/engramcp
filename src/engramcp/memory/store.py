@@ -152,8 +152,10 @@ class WorkingMemory:
 
     async def _trigger_flush(self, current: int) -> None:
         """Schedule flush callback as a background task with error handling."""
+        # Safe in asyncio: no await between locked() and async-with, so no
+        # other coroutine can interleave between the check and the acquire.
         if self._flush_lock.locked():
-            return  # Another flush is already in progress
+            return
 
         async with self._flush_lock:
             fragments = await self.get_recent(limit=current)
