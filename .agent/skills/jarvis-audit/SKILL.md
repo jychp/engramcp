@@ -77,7 +77,7 @@ Run **all scopes in parallel** using subagents. Each scope must produce a **top 
 
 ### 8. Documentation quality & completeness
 
-- **CLAUDE.md**: Is it accurate and up to date? Does the project structure match actual files? Are all design docs listed?
+- **CLAUDE.md/AGENTS.md**: Is it accurate and up to date? Does the project structure match actual files? Are all design docs listed?
 - **Design docs** (`docs/design/*.md`): Does each implemented feature have a corresponding design doc? Are design docs consistent with actual implementation?
 - **Design drafts** (`docs/drafts/*.md`): Are there inconsistencies between drafts (design-spec, ontology-schema, action-plan, deep-dives) and the actual code? Flag stale sections that no longer reflect reality.
 - **README.md**: Does it accurately describe installation, requirements, and usage? Are there missing sections (configuration, MCP tool examples, architecture overview)?

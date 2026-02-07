@@ -44,7 +44,7 @@
 - [ ] All previous sprint tests still pass (no regression).
 
 #### Documentation
-- [ ] `CLAUDE.md` updated if architecture, conventions, or structure changed.
+- [ ] `CLAUDE.md/AGENTS.md` updated if architecture, conventions, or structure changed.
 - [ ] `README.md` updated if user-facing behavior changed.
 - [ ] Design doc created/updated in `docs/design/` if needed.
 
