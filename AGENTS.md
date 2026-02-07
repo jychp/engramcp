@@ -50,6 +50,17 @@ When exploring external projects for patterns or reference, clone them into `ext
 | [Entity Resolution](docs/design/entity-resolution.md) | Layer 4 partial: three-level resolver, normalizer, scorer, merge executor, anti-patterns |
 | [Consolidation Pipeline](docs/design/consolidation-pipeline.md) | Layer 4: pipeline orchestrator, entity-to-node mapping, claim integration, source traceability |
 
+## Community & Governance Documents
+
+| Document | Description |
+|---|---|
+| [Contributing](CONTRIBUTING.md) | Contribution workflow, local setup, coding/review expectations |
+| [Reviewing](REVIEWING.md) | PR review goals, reviewer/author checklists, security-sensitive review rules |
+| [Maintainers](MAINTAINERS.md) | Maintainer roster, responsibilities, appointment policy |
+| [Code of Conduct](CODE_OF_CONDUCT.md) | Community behavior standards, reporting and enforcement policy |
+| [Support](SUPPORT.md) | Support channels and issue reporting expectations |
+| [Security](SECURITY.md) | Private vulnerability reporting and coordinated disclosure policy |
+
 ---
 
 ## Architecture
@@ -153,6 +164,12 @@ Public-facing file for users/contributors. Update when:
 - New user-visible major feature
 - Changes to requirements or installation
 - Modifications to public config structure
+
+### GitHub Issue Templates
+Issue intake files in `.github/ISSUE_TEMPLATE/`. Update when:
+- Issue taxonomy changes (bug/feature/question/improvement categories)
+- Required triage metadata changes
+- Security/support routing links change
 
 ### CLAUDE.md/AGENTS.md (this file)
 Technical reference for Claude. Update when:
