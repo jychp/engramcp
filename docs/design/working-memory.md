@@ -80,7 +80,7 @@ expected buffer size (<1000 fragments).
 
 ## Agent Fingerprint
 
-`models/agent.py` provides `agent_fingerprint(agent_id) -> str | None`:
+`models/__init__.py` provides `agent_fingerprint(agent_id) -> str | None`:
 SHA-256 of the agent ID truncated to 16 hex characters.  This deterministic
 fingerprint is stored on each fragment for provenance tracking without
 exposing the raw agent identifier.

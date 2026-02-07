@@ -85,25 +85,25 @@ Agent → correct_memory → [Graph mutations + cascade]
 ```
 src/engramcp/
 ├── __init__.py
-├── server.py               # FastMCP server, 3 tools (✅ Sprint 1)
-├── config.py               # LLM provider/model, thresholds, paths
+├── server.py               # FastMCP server, 3 tools (✅)
+├── config.py               # LLM provider/model, thresholds, paths (planned)
 ├── models/                 # Shared data models
-│   ├── __init__.py         # Agent fingerprinting + domain logic
-│   ├── schemas.py          # Pydantic input/output schemas for MCP tools (✅ Sprint 1)
-│   ├── nodes.py            # Node type definitions
-│   ├── relations.py        # Relationship type definitions
-│   └── confidence.py       # NATO rating model
+│   ├── __init__.py         # Agent fingerprinting + domain logic (✅)
+│   ├── schemas.py          # Pydantic input/output schemas for MCP tools (✅)
+│   ├── nodes.py            # Node type definitions (planned)
+│   ├── relations.py        # Relationship type definitions (planned)
+│   └── confidence.py       # NATO rating model (planned)
 ├── memory/                 # Working memory
-│   ├── __init__.py         # Domain API, re-exports
-│   ├── schemas.py          # MemoryFragment model (✅ Sprint 2)
-│   └── store.py            # Redis-backed buffer, keyword search (✅ Sprint 2)
-├── graph/                  # Neo4j layer
+│   ├── __init__.py         # Domain API, fragment factory, re-exports (✅)
+│   ├── schemas.py          # MemoryFragment model (✅)
+│   └── store.py            # Redis-backed buffer, keyword search (✅)
+├── graph/                  # Neo4j layer (planned — Layer 2)
 │   ├── __init__.py
 │   ├── store.py            # CRUD operations
 │   ├── schema.py           # Index/constraint init
-│   ├── entity_resolution.py
+│   ├── entity_resolution.py # Three-level entity resolution
 │   └── traceability.py     # Source chain management
-├── engine/                 # Processing engines
+├── engine/                 # Processing engines (planned — Layers 3-6)
 │   ├── __init__.py
 │   ├── confidence.py       # Confidence calculation & propagation
 │   ├── consolidation.py    # Async batch pipeline
@@ -113,7 +113,7 @@ src/engramcp/
 │   ├── demand.py           # Query pattern tracker
 │   ├── prompt_builder.py   # Dynamic extraction prompt
 │   └── retrieval.py        # Graph traversal & scoring
-└── audit/
+└── audit/                  # Audit logging (planned)
     ├── __init__.py
     └── logger.py           # JSONL audit log writer
 ```

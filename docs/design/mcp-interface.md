@@ -71,7 +71,7 @@ A module-level `_working_memory: dict` in `server.py` acts as the backing store.
 
 **Response shape**: See [DD2 — get_memory Response Format](../drafts/deep-dives.md#dd2) for the full JSON contract.
 
-**Confidence filtering**: A memory passes `min_confidence` when both its letter index and number are <= the filter's. `F6` lets everything through.
+**Confidence filtering**: A memory passes `min_confidence` when **both** its letter index **and** number are <= the filter's (AND semantics). `F6` lets everything through.
 
 **Compact mode**: When `compact=true`, memories have empty `sources`, `causal_chain`, and `participants`; `contradictions` is empty.
 
@@ -94,7 +94,7 @@ A module-level `_working_memory: dict` in `server.py` acts as the backing store.
 
 ## Models
 
-All models are in `src/engramcp/models/mcp.py`.
+All models are in `src/engramcp/models/schemas.py`.
 
 ### Enums
 
