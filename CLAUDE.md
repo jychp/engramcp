@@ -41,6 +41,7 @@ When exploring external projects for patterns or reference, clone them into `ext
 | [Layer Architecture](docs/design/layer-architecture.md) | 8-layer decomposition, data flows, mock replacement strategy |
 | [MCP Interface](docs/design/mcp-interface.md) | Layer 7 design: 3 tools, Pydantic models, testing strategy, frozen contract |
 | [Working Memory](docs/design/working-memory.md) | Layer 1 design: Redis-backed buffer, MemoryFragment model, keyword search |
+| [Graph Store](docs/design/graph-store.md) | Layer 0+2 design: Neo4j CRUD, node/relation models, schema init, query methods |
 
 ---
 
@@ -63,9 +64,9 @@ Agent → correct_memory → [Graph mutations + cascade]
 | 5 | `engine/concepts.py`, `engine/demand.py` | Concept emergence from retrieval demand |
 | 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline, LLM extraction |
 | 3 | `engine/confidence.py` | NATO rating, propagation, corroboration |
-| 2 | `graph/store.py`, `graph/schema.py` | Neo4j CRUD, ontology, constraints |
-| 1 | `memory/working.py` | Redis-backed buffer, TTL, keyword search (✅ Sprint 2) |
-| 0 | `models/` | Schema, indexes, constraints definitions |
+| 2 | `graph/store.py`, `graph/schema.py` | Neo4j CRUD, ontology, constraints (✅) |
+| 1 | `memory/working.py` | Redis-backed buffer, TTL, keyword search (✅) |
+| 0 | `models/` | Schema, indexes, constraints definitions (✅) |
 
 ### Stack
 
@@ -88,19 +89,19 @@ src/engramcp/
 ├── server.py               # FastMCP server, 3 tools (✅)
 ├── config.py               # LLM provider/model, thresholds, paths (planned)
 ├── models/                 # Shared data models
-│   ├── __init__.py         # Agent fingerprinting + domain logic (✅)
+│   ├── __init__.py         # Agent fingerprinting + domain logic + re-exports (✅)
 │   ├── schemas.py          # Pydantic input/output schemas for MCP tools (✅)
-│   ├── nodes.py            # Node type definitions (planned)
-│   ├── relations.py        # Relationship type definitions (planned)
-│   └── confidence.py       # NATO rating model (planned)
+│   ├── nodes.py            # 11 node type models + LABEL_TO_MODEL mapping (✅)
+│   ├── relations.py        # 17 relationship type models (✅)
+│   └── confidence.py       # NATORating, Reliability, Credibility (✅)
 ├── memory/                 # Working memory
-│   ├── __init__.py         # Domain API, fragment factory, re-exports (✅)
+│   ├── __init__.py         # Domain API, re-exports (✅)
 │   ├── schemas.py          # MemoryFragment model (✅)
 │   └── store.py            # Redis-backed buffer, keyword search (✅)
-├── graph/                  # Neo4j layer (planned — Layer 2)
-│   ├── __init__.py
-│   ├── store.py            # CRUD operations
-│   ├── schema.py           # Index/constraint init
+├── graph/                  # Neo4j layer
+│   ├── __init__.py         # Re-exports GraphStore, init_schema (✅)
+│   ├── store.py            # CRUD operations + query methods (✅)
+│   ├── schema.py           # Index/constraint init (✅)
 │   ├── entity_resolution.py # Three-level entity resolution
 │   └── traceability.py     # Source chain management
 ├── engine/                 # Processing engines (planned — Layers 3-6)

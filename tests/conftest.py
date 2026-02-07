@@ -80,6 +80,28 @@ async def clean_neo4j(neo4j_driver):
     yield
 
 
+@pytest.fixture(scope="session")
+def _graph_schema_initialized(neo4j_container):
+    """Initialize the Neo4j schema once per session (indexes + constraints)."""
+    from engramcp.graph.schema import init_schema
+
+    async def _init():
+        driver = AsyncGraphDatabase.driver(neo4j_container)
+        await init_schema(driver)
+        await driver.close()
+
+    asyncio.run(_init())
+    return True
+
+
+@pytest.fixture()
+async def graph_store(neo4j_driver, _graph_schema_initialized):
+    """Yield a GraphStore connected to the test Neo4j container."""
+    from engramcp.graph.store import GraphStore
+
+    return GraphStore(neo4j_driver)
+
+
 # ---------------------------------------------------------------------------
 # Redis
 # ---------------------------------------------------------------------------
