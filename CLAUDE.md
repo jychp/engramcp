@@ -44,6 +44,7 @@ When exploring external projects for patterns or reference, clone them into `ext
 | [Graph Store](docs/design/graph-store.md) | Layer 0+2 design: Neo4j CRUD, node/relation models, schema init, query methods |
 | [Confidence Engine](docs/design/confidence-engine.md) | Layer 3 design: source traceability, independence detection, NATO confidence, propagation |
 | [Config & Audit](docs/design/config-audit.md) | Config dataclasses, async JSONL audit logger, AuditEventType enum |
+| [Extraction](docs/design/extraction.md) | Layer 4 partial: LLMAdapter protocol, ExtractionEngine, prompt builder, extraction schemas |
 
 ---
 
@@ -64,7 +65,7 @@ Agent → correct_memory → [Graph mutations + cascade]
 | 7 | `server.py` | MCP Interface (send_memory, get_memory, correct_memory) |
 | 6 | `engine/retrieval.py` | Graph traversal, scoring, synthesis |
 | 5 | `engine/concepts.py`, `engine/demand.py` | Concept emergence from retrieval demand |
-| 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline, LLM extraction |
+| 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline, LLM extraction (extraction ✅) |
 | 3 | `engine/confidence.py` | NATO rating, propagation, corroboration (✅) |
 | 2 | `graph/store.py`, `graph/schema.py` | Neo4j CRUD, ontology, constraints (✅) |
 | 1 | `memory/working.py` | Redis-backed buffer, TTL, keyword search (✅) |
@@ -107,14 +108,15 @@ src/engramcp/
 │   ├── entity_resolution.py # Three-level entity resolution
 │   └── traceability.py     # Source chain traversal, independence detection (✅)
 ├── engine/                 # Processing engines (Layers 3-6)
-│   ├── __init__.py         # Re-exports ConfidenceEngine, ConfidenceConfig (✅)
+│   ├── __init__.py         # Re-exports ConfidenceEngine, ExtractionEngine, etc. (✅)
 │   ├── confidence.py       # Confidence calculation & propagation (✅)
+│   ├── schemas.py          # Extraction result models (✅)
+│   ├── extraction.py       # LLMAdapter protocol + ExtractionEngine (✅)
+│   ├── prompt_builder.py   # Dynamic extraction prompt (✅)
 │   ├── consolidation.py    # Async batch pipeline
-│   ├── extraction.py       # LLM extraction adapter
 │   ├── abstraction.py      # Pattern/Concept/Rule emergence
 │   ├── concepts.py         # Concept registry, stabilization
 │   ├── demand.py           # Query pattern tracker
-│   ├── prompt_builder.py   # Dynamic extraction prompt
 │   └── retrieval.py        # Graph traversal & scoring
 └── audit/                  # Audit logging (✅)
     ├── __init__.py         # Re-exports AuditLogger, AuditEvent, AuditEventType (✅)
