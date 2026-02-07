@@ -43,6 +43,7 @@ When exploring external projects for patterns or reference, clone them into `ext
 | [Working Memory](docs/design/working-memory.md) | Layer 1 design: Redis-backed buffer, MemoryFragment model, keyword search |
 | [Graph Store](docs/design/graph-store.md) | Layer 0+2 design: Neo4j CRUD, node/relation models, schema init, query methods |
 | [Confidence Engine](docs/design/confidence-engine.md) | Layer 3 design: source traceability, independence detection, NATO confidence, propagation |
+| [Config & Audit](docs/design/config-audit.md) | Config dataclasses, async JSONL audit logger, AuditEventType enum |
 
 ---
 
@@ -88,7 +89,7 @@ Agent → correct_memory → [Graph mutations + cascade]
 src/engramcp/
 ├── __init__.py
 ├── server.py               # FastMCP server, 3 tools (✅)
-├── config.py               # LLM provider/model, thresholds, paths (planned)
+├── config.py               # LLM, consolidation, entity resolution, audit config (✅)
 ├── models/                 # Shared data models
 │   ├── __init__.py         # Agent fingerprinting + domain logic + re-exports (✅)
 │   ├── schemas.py          # Pydantic input/output schemas for MCP tools (✅)
@@ -115,9 +116,10 @@ src/engramcp/
 │   ├── demand.py           # Query pattern tracker
 │   ├── prompt_builder.py   # Dynamic extraction prompt
 │   └── retrieval.py        # Graph traversal & scoring
-└── audit/                  # Audit logging (planned)
-    ├── __init__.py
-    └── logger.py           # JSONL audit log writer
+└── audit/                  # Audit logging (✅)
+    ├── __init__.py         # Re-exports AuditLogger, AuditEvent, AuditEventType (✅)
+    ├── schemas.py          # AuditEventType enum + AuditEvent model (✅)
+    └── store.py            # Async JSONL audit logger (✅)
 ```
 
 ---
