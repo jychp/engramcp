@@ -193,6 +193,13 @@ class GraphStore:
         """Alias for ``get_node``."""
         return await self.get_node(node_id)
 
+    async def find_by_label(self, label: str) -> list[MemoryNode]:
+        """Find all nodes with a specific label (e.g. ``'Agent'``, ``'Artifact'``)."""
+        query = (
+            f"MATCH (n:{label}) " "RETURN properties(n) AS props, labels(n) AS labels"
+        )
+        return await self._run_multi_node_query(query)
+
     async def find_facts_by_agent(self, agent_name: str) -> list[MemoryNode]:
         """Find all Fact nodes linked to an Agent via CONCERNS."""
         query = (

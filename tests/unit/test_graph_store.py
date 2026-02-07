@@ -455,3 +455,21 @@ class TestQueries:
         results = await graph_store.find_possibly_same_as_unresolved()
         assert len(results) == 1
         assert results[0]["similarity_score"] == 0.9
+
+    async def test_find_by_label_returns_matching_nodes(self, graph_store):
+        a1 = Agent(name="Alpha", type=AgentType.person)
+        a2 = Agent(name="Beta", type=AgentType.organization)
+        fact = Fact(content="Unrelated fact")
+        await graph_store.create_node(a1)
+        await graph_store.create_node(a2)
+        await graph_store.create_node(fact)
+
+        results = await graph_store.find_by_label("Agent")
+        ids = {r.id for r in results}
+        assert a1.id in ids
+        assert a2.id in ids
+        assert fact.id not in ids
+
+    async def test_find_by_label_empty_result(self, graph_store):
+        results = await graph_store.find_by_label("Pattern")
+        assert results == []

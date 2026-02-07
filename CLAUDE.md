@@ -46,6 +46,7 @@ When exploring external projects for patterns or reference, clone them into `ext
 | [Config & Audit](docs/design/config-audit.md) | Config dataclasses, async JSONL audit logger, AuditEventType enum |
 | [Extraction](docs/design/extraction.md) | Layer 4 partial: LLMAdapter protocol, ExtractionEngine, prompt builder, extraction schemas |
 | [Entity Resolution](docs/design/entity-resolution.md) | Layer 4 partial: three-level resolver, normalizer, scorer, merge executor, anti-patterns |
+| [Consolidation Pipeline](docs/design/consolidation-pipeline.md) | Layer 4: pipeline orchestrator, entity-to-node mapping, claim integration, source traceability |
 
 ---
 
@@ -66,7 +67,7 @@ Agent → correct_memory → [Graph mutations + cascade]
 | 7 | `server.py` | MCP Interface (send_memory, get_memory, correct_memory) |
 | 6 | `engine/retrieval.py` | Graph traversal, scoring, synthesis |
 | 5 | `engine/concepts.py`, `engine/demand.py` | Concept emergence from retrieval demand |
-| 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline, LLM extraction (extraction ✅) |
+| 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline (✅), LLM extraction (✅) |
 | 3 | `engine/confidence.py` | NATO rating, propagation, corroboration (✅) |
 | 2 | `graph/store.py`, `graph/schema.py` | Neo4j CRUD, ontology, constraints (✅) |
 | 1 | `memory/working.py` | Redis-backed buffer, TTL, keyword search (✅) |
@@ -114,7 +115,7 @@ src/engramcp/
 │   ├── schemas.py          # Extraction result models (✅)
 │   ├── extraction.py       # LLMAdapter protocol + ExtractionEngine (✅)
 │   ├── prompt_builder.py   # Dynamic extraction prompt (✅)
-│   ├── consolidation.py    # Async batch pipeline
+│   ├── consolidation.py    # Consolidation pipeline orchestrator (✅)
 │   ├── abstraction.py      # Pattern/Concept/Rule emergence
 │   ├── concepts.py         # Concept registry, stabilization
 │   ├── demand.py           # Query pattern tracker
