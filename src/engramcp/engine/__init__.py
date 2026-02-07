@@ -5,6 +5,8 @@ from engramcp.engine.confidence import ConfidenceConfig
 from engramcp.engine.confidence import ConfidenceEngine
 from engramcp.engine.confidence import CredibilityAssessment
 from engramcp.engine.confidence import PropagatedRating
+from engramcp.engine.consolidation import ConsolidationPipeline
+from engramcp.engine.consolidation import ConsolidationRunResult
 from engramcp.engine.extraction import ExtractionEngine
 from engramcp.engine.extraction import LLMAdapter
 from engramcp.engine.extraction import LLMError
@@ -18,6 +20,8 @@ __all__ = [
     "CascadeResult",
     "ConfidenceConfig",
     "ConfidenceEngine",
+    "ConsolidationPipeline",
+    "ConsolidationRunResult",
     "CredibilityAssessment",
     "ExtractedClaim",
     "ExtractedEntity",
