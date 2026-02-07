@@ -35,10 +35,18 @@ class ConsolidationConfig:
 class EntityResolutionConfig:
     """Thresholds for the three-level entity resolution strategy."""
 
+    # Action thresholds
     auto_merge_threshold: float = 0.9
     flag_for_review_threshold: float = 0.7
     create_link_threshold: float = 0.5
     llm_assisted_enabled: bool = True
+    # Scoring weights (must sum to 1.0)
+    name_similarity_weight: float = 0.5
+    context_overlap_weight: float = 0.3
+    property_compatibility_weight: float = 0.2
+    # Fuzzy matching parameters
+    token_jaccard_threshold: float = 0.6
+    edit_distance_max: float = 0.3
 
 
 @dataclass(frozen=True)
