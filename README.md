@@ -78,9 +78,10 @@ Current configuration is code-based (dataclasses), not env-var based.
 Working memory must be configured before using tools:
 
 ```python
+import asyncio
 from engramcp.server import configure
 
-await configure(redis_url="redis://localhost:6379")
+asyncio.run(configure(redis_url="redis://localhost:6379"))
 ```
 
 ## Run Locally
@@ -100,14 +101,19 @@ docker run --rm -p 6379:6379 redis:7
 3. Start using the MCP server in Python:
 
 ```python
+import asyncio
 from fastmcp import Client
 from engramcp.server import configure, mcp
 
-await configure(redis_url="redis://localhost:6379")
 
-async with Client(mcp) as client:
-    result = await client.call_tool("send_memory", {"content": "Hello memory"})
-    print(result)
+async def main():
+    await configure(redis_url="redis://localhost:6379")
+    async with Client(mcp) as client:
+        result = await client.call_tool("send_memory", {"content": "Hello memory"})
+        print(result)
+
+
+asyncio.run(main())
 ```
 
 ## Documentation
