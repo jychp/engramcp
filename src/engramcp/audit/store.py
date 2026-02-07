@@ -56,7 +56,8 @@ class AuditLogger:
         if not path.exists():
             return []
 
-        raw = await asyncio.to_thread(path.read_text)
+        async with self._lock:
+            raw = await asyncio.to_thread(path.read_text)
         events: list[AuditEvent] = []
         for line in raw.strip().splitlines():
             evt = AuditEvent.model_validate_json(line)
