@@ -36,6 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: create-release
+    environment: pypi
     permissions:
       id-token: write
     steps:
@@ -59,6 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: create-release
+    environment: docker
     permissions:
       packages: write
     steps:
