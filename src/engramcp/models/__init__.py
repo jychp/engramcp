@@ -5,8 +5,11 @@ from __future__ import annotations
 import hashlib
 
 from engramcp.models.confidence import Credibility
+from engramcp.models.confidence import credibility_from_int
+from engramcp.models.confidence import degrade_credibility
 from engramcp.models.confidence import NATORating
 from engramcp.models.confidence import Reliability
+from engramcp.models.confidence import worst_reliability
 from engramcp.models.nodes import Agent
 from engramcp.models.nodes import AgentType
 from engramcp.models.nodes import Artifact
@@ -53,6 +56,9 @@ __all__ = [
     "Credibility",
     "NATORating",
     "Reliability",
+    "credibility_from_int",
+    "degrade_credibility",
+    "worst_reliability",
     # Nodes
     "Agent",
     "AgentType",

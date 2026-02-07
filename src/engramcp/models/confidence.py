@@ -93,3 +93,35 @@ class NATORating(BaseModel):
         self_c = _CREDIBILITY_ORDER.index(self.credibility)
         other_c = _CREDIBILITY_ORDER.index(other.credibility)
         return self_r <= other_r and self_c <= other_c
+
+
+# ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
+
+
+def worst_reliability(*ratings: Reliability) -> Reliability:
+    """Return the worst (highest-index) reliability letter.
+
+    Raises ``ValueError`` if called with no arguments.
+    """
+    if not ratings:
+        msg = "worst_reliability() requires at least one argument"
+        raise ValueError(msg)
+    worst_idx = max(_RELIABILITY_ORDER.index(r) for r in ratings)
+    return _RELIABILITY_ORDER[worst_idx]
+
+
+def degrade_credibility(credibility: Credibility, steps: int = 1) -> Credibility:
+    """Shift credibility toward worse by *steps*, clamped at ``SIX``."""
+    idx = _CREDIBILITY_ORDER.index(credibility)
+    new_idx = min(idx + steps, len(_CREDIBILITY_ORDER) - 1)
+    return _CREDIBILITY_ORDER[new_idx]
+
+
+def credibility_from_int(value: int) -> Credibility:
+    """Map integer 1-6 to the corresponding ``Credibility`` enum member."""
+    if not 1 <= value <= 6:
+        msg = f"Credibility value must be 1-6, got {value}"
+        raise ValueError(msg)
+    return _CREDIBILITY_ORDER[value - 1]

@@ -39,6 +39,9 @@ from engramcp.models import (
     Source,
     SourcedFrom,
     TemporalPrecision,
+    credibility_from_int,
+    degrade_credibility,
+    worst_reliability,
 )
 
 
@@ -289,3 +292,61 @@ class TestRelations:
         rel = PossiblySameAs(similarity_score=0.85)
         assert rel.rel_type == "POSSIBLY_SAME_AS"
         assert rel.detection_method == "name_similarity"
+
+
+# ===================================================================
+# Confidence helpers
+# ===================================================================
+
+
+class TestWorstReliability:
+    def test_single_value(self):
+        assert worst_reliability(Reliability.A) == Reliability.A
+
+    def test_multiple_returns_worst(self):
+        assert worst_reliability(Reliability.A, Reliability.C, Reliability.B) == Reliability.C
+
+    def test_all_same(self):
+        assert worst_reliability(Reliability.D, Reliability.D) == Reliability.D
+
+    def test_f_is_worst(self):
+        assert worst_reliability(Reliability.A, Reliability.F) == Reliability.F
+
+    def test_empty_raises(self):
+        with pytest.raises(ValueError, match="at least one argument"):
+            worst_reliability()
+
+
+class TestDegradeCredibility:
+    def test_single_step(self):
+        assert degrade_credibility(Credibility.TWO) == Credibility.THREE
+
+    def test_multiple_steps(self):
+        assert degrade_credibility(Credibility.ONE, steps=3) == Credibility.FOUR
+
+    def test_clamped_at_six(self):
+        assert degrade_credibility(Credibility.FIVE, steps=5) == Credibility.SIX
+
+    def test_zero_steps_no_change(self):
+        assert degrade_credibility(Credibility.THREE, steps=0) == Credibility.THREE
+
+    def test_already_at_six(self):
+        assert degrade_credibility(Credibility.SIX) == Credibility.SIX
+
+
+class TestCredibilityFromInt:
+    def test_all_valid_values(self):
+        assert credibility_from_int(1) == Credibility.ONE
+        assert credibility_from_int(2) == Credibility.TWO
+        assert credibility_from_int(3) == Credibility.THREE
+        assert credibility_from_int(4) == Credibility.FOUR
+        assert credibility_from_int(5) == Credibility.FIVE
+        assert credibility_from_int(6) == Credibility.SIX
+
+    def test_zero_raises(self):
+        with pytest.raises(ValueError, match="1-6"):
+            credibility_from_int(0)
+
+    def test_seven_raises(self):
+        with pytest.raises(ValueError, match="1-6"):
+            credibility_from_int(7)
