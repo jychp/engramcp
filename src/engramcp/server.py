@@ -6,14 +6,11 @@ search.  Call ``configure(redis_url=...)`` before using the server.
 
 from __future__ import annotations
 
-import uuid
-
 from fastmcp import FastMCP
 from redis.asyncio import Redis  # type: ignore[import-untyped]
 
-from engramcp.memory import MemoryFragment
+from engramcp.memory import create_memory_fragment
 from engramcp.memory import WorkingMemory
-from engramcp.models import agent_fingerprint
 from engramcp.models.schemas import CorrectionAction
 from engramcp.models.schemas import CorrectMemoryResult
 from engramcp.models.schemas import GetMemoryResult
@@ -72,6 +69,9 @@ def _get_wm() -> WorkingMemory:
 # ---------------------------------------------------------------------------
 
 
+_VALID_RELIABILITY_LETTERS = set("ABCDEF")
+
+
 @mcp.tool
 async def send_memory(
     content: str,
@@ -88,36 +88,26 @@ async def send_memory(
         agent_id: Identifier of the calling agent.
     """
     wm = _get_wm()
-    memory_id = f"mem_{uuid.uuid4().hex[:8]}"
 
-    # Default confidence: hint letter + uncorroborated number
-    confidence = f"{confidence_hint or 'F'}3"
+    # Validate confidence_hint
+    if confidence_hint is not None:
+        hint = confidence_hint.upper()
+        if hint not in _VALID_RELIABILITY_LETTERS:
+            return SendMemoryResult(
+                memory_id="",
+                status="rejected",
+            )
+        confidence_hint = hint
 
-    sources: list[dict] = []
-    if source:
-        sources.append(
-            {
-                "id": f"src_{uuid.uuid4().hex[:8]}",
-                "type": source.get("type", "unknown"),
-                "ref": source.get("ref"),
-                "citation": source.get("citation"),
-                "reliability": confidence_hint,
-                "credibility": "3",
-            }
-        )
-
-    fragment = MemoryFragment(
-        id=memory_id,
+    fragment = create_memory_fragment(
         content=content,
-        type="Fact",
-        confidence=confidence,
-        sources=sources,
+        source=source,
+        confidence_hint=confidence_hint,
         agent_id=agent_id,
-        agent_fingerprint=agent_fingerprint(agent_id),
     )
 
     await wm.store(fragment)
-    return SendMemoryResult(memory_id=memory_id)
+    return SendMemoryResult(memory_id=fragment.id)
 
 
 @mcp.tool
@@ -134,7 +124,7 @@ async def get_memory(
 
     Args:
         query: Natural language query.
-        max_depth: Max causal chain traversal depth.
+        max_depth: Reserved for Layer 6 (graph traversal depth). Currently unused.
         min_confidence: Minimum NATO rating (e.g. "B2", default "F6").
         include_contradictions: Include contradicting memories.
         include_sources: Include full source chains.
@@ -203,7 +193,15 @@ async def correct_memory(
     wm = _get_wm()
 
     # Validate action
-    action_enum = CorrectionAction(action)
+    try:
+        action_enum = CorrectionAction(action)
+    except ValueError:
+        return CorrectMemoryResult(
+            target_id=target_id,
+            action=CorrectionAction.contest,  # placeholder
+            status="rejected",
+            details={"error": f"Invalid action: {action}"},
+        )
 
     # Check target exists
     if not await wm.exists(target_id):

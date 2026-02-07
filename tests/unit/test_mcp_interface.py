@@ -312,17 +312,32 @@ class TestGetMemory:
         assert data["meta"]["total_found"] == 0
         assert len(data["memories"]) == 0
 
-    async def test_confidence_filter_uses_or_semantics(self, mcp_client):
+    async def test_confidence_filter_uses_and_semantics(self, mcp_client):
         # A3: reliable source (A), but uncorroborated info (3)
         await mcp_client.call_tool(
             "send_memory",
             {"content": "Reliable uncorroborated claim", "confidence_hint": "A"},
         )
-        # Filter D1: the memory's letter A passes (A <= D),
-        # even though number 3 fails (3 > 1). OR semantics → included.
+        # Filter D1: letter A passes (A <= D), but number 3 fails (3 > 1).
+        # AND semantics → excluded.
         result = await mcp_client.call_tool(
             "get_memory",
             {"query": "Reliable uncorroborated", "min_confidence": "D1"},
+        )
+        data = _parse(result)
+        assert data["meta"]["total_found"] == 0
+
+    async def test_confidence_filter_passes_when_both_ok(self, mcp_client):
+        # A3: reliable source (A), uncorroborated info (3)
+        await mcp_client.call_tool(
+            "send_memory",
+            {"content": "Reliable uncorroborated claim", "confidence_hint": "A"},
+        )
+        # Filter D3: letter A passes (A <= D), number 3 passes (3 <= 3).
+        # AND semantics → included.
+        result = await mcp_client.call_tool(
+            "get_memory",
+            {"query": "Reliable uncorroborated", "min_confidence": "D3"},
         )
         data = _parse(result)
         assert data["meta"]["total_found"] == 1

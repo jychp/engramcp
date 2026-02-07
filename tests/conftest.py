@@ -7,6 +7,7 @@ test session.  Individual tests clean each database via autouse fixtures.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 
 import pytest
@@ -14,6 +15,8 @@ import redis as sync_redis
 from neo4j import AsyncGraphDatabase
 from redis.asyncio import Redis
 from testcontainers.core.container import DockerContainer
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -45,10 +48,16 @@ def neo4j_container():
                     await driver.verify_connectivity()
                     await driver.close()
                     return
-                except Exception:
+                except Exception as exc:
                     if attempt == max_attempts - 1:
                         await driver.close()
                         raise
+                    logger.debug(
+                        "Neo4j not ready (attempt %d/%d): %s",
+                        attempt + 1,
+                        max_attempts,
+                        exc,
+                    )
                     time.sleep(1)
 
         asyncio.run(wait_for_neo4j())
@@ -118,10 +127,16 @@ def redis_container():
                 r.ping()
                 r.close()
                 break
-            except Exception:
+            except Exception as exc:
                 if attempt == max_attempts - 1:
                     r.close()
                     raise
+                logger.debug(
+                    "Redis not ready (attempt %d/%d): %s",
+                    attempt + 1,
+                    max_attempts,
+                    exc,
+                )
                 time.sleep(1)
 
         yield url
