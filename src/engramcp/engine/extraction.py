@@ -113,7 +113,7 @@ class ExtractionEngine:
         result = self._parse_llm_output(raw)
         # Ensure fragment IDs are tracked even if the LLM omits them
         result.fragment_ids_processed = list(
-            set(result.fragment_ids_processed) | set(fragment_ids)
+            dict.fromkeys(result.fragment_ids_processed + fragment_ids)
         )
         return result
 
