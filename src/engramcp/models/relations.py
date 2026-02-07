@@ -366,6 +366,20 @@ class PossiblySameAs(RelationshipBase):
         return "POSSIBLY_SAME_AS"
 
 
+class MergedFrom(RelationshipBase):
+    """Permanent traceability: the absorbed node was merged into the surviving node."""
+
+    merge_run_id: str = Field(description="ID of the merge operation.")
+    merged_at: datetime = Field(
+        default_factory=_utcnow,
+        description="When the merge happened.",
+    )
+
+    @property
+    def rel_type(self) -> str:
+        return "MERGED_FROM"
+
+
 # ---------------------------------------------------------------------------
 # Union type for generic dispatch
 # ---------------------------------------------------------------------------
@@ -388,4 +402,5 @@ Relationship = (
     | Generalizes
     | InstanceOf
     | PossiblySameAs
+    | MergedFrom
 )

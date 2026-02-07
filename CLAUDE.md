@@ -45,6 +45,7 @@ When exploring external projects for patterns or reference, clone them into `ext
 | [Confidence Engine](docs/design/confidence-engine.md) | Layer 3 design: source traceability, independence detection, NATO confidence, propagation |
 | [Config & Audit](docs/design/config-audit.md) | Config dataclasses, async JSONL audit logger, AuditEventType enum |
 | [Extraction](docs/design/extraction.md) | Layer 4 partial: LLMAdapter protocol, ExtractionEngine, prompt builder, extraction schemas |
+| [Entity Resolution](docs/design/entity-resolution.md) | Layer 4 partial: three-level resolver, normalizer, scorer, merge executor, anti-patterns |
 
 ---
 
@@ -95,7 +96,7 @@ src/engramcp/
 │   ├── __init__.py         # Agent fingerprinting + domain logic + re-exports (✅)
 │   ├── schemas.py          # Pydantic input/output schemas for MCP tools (✅)
 │   ├── nodes.py            # 11 node type models + LABEL_TO_MODEL mapping (✅)
-│   ├── relations.py        # 17 relationship type models (✅)
+│   ├── relations.py        # 18 relationship type models (✅)
 │   └── confidence.py       # NATORating, Reliability, Credibility + helpers (✅)
 ├── memory/                 # Working memory
 │   ├── __init__.py         # Domain API, re-exports (✅)
@@ -105,7 +106,7 @@ src/engramcp/
 │   ├── __init__.py         # Re-exports GraphStore, SourceTraceability, init_schema (✅)
 │   ├── store.py            # CRUD operations + query methods (✅)
 │   ├── schema.py           # Index/constraint init (✅)
-│   ├── entity_resolution.py # Three-level entity resolution
+│   ├── entity_resolution.py # Three-level entity resolution (✅)
 │   └── traceability.py     # Source chain traversal, independence detection (✅)
 ├── engine/                 # Processing engines (Layers 3-6)
 │   ├── __init__.py         # Re-exports ConfidenceEngine, ExtractionEngine, etc. (✅)
