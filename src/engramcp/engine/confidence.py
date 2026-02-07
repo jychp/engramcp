@@ -269,7 +269,11 @@ class ConfidenceEngine:
             for rel in rels:
                 cred_val = rel["props"].get("credibility")
                 if cred_val:
-                    idx = list(Credibility).index(Credibility(str(cred_val)))
+                    try:
+                        cred = Credibility(str(cred_val))
+                    except ValueError:
+                        continue
+                    idx = list(Credibility).index(cred)
                     best_credibility_idx = min(best_credibility_idx, idx)
 
         if not reliabilities:

@@ -182,7 +182,7 @@ When a fact is contested:
 
 | # | Decision | Rationale |
 |---|---|---|
-| D1 | `SourceTraceability` takes `AsyncDriver` directly | Needs `[:CITES*1..N]` variable-length paths not exposed by `GraphStore` |
+| D1 | `SourceTraceability` takes `AsyncDriver` directly | Needs `[:CITES*0..N]` variable-length paths not exposed by `GraphStore` |
 | D2 | Propagated confidence is computed on demand, not stored | Avoids staleness; derived nodes lack `SOURCED_FROM` relations |
 | D3 | Conservative defaults everywhere | Unknown independence → not independent; insufficient data → credibility 6 |
 | D4 | Cascade recalculates, never deletes | Dissolved nodes keep audit trail; status changes to `dissolved` |
