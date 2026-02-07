@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING
 
 from engramcp.config import EntityResolutionConfig
 from engramcp.engine.schemas import ExtractedEntity
-from engramcp.models.relations import MergedFrom
 
 if TYPE_CHECKING:
     from engramcp.engine.extraction import LLMAdapter
@@ -311,30 +310,31 @@ class EntityResolver:
         normalized = normalize_name(entity.name)
 
         # --- Level 1: exact match on normalized name + aliases ---
+        # Single-token guard applies even at level 1: downgrade to link.
+        single_token = _is_single_token(normalized)
+
         for ex in existing:
             if _is_cross_type(entity.type, ex.type):
                 continue
             ex_normalized = normalize_name(ex.name)
-            if normalized == ex_normalized:
+            matched = normalized == ex_normalized
+            if not matched:
+                # Check aliases
+                matched = any(
+                    normalized == normalize_name(alias) for alias in ex.aliases
+                )
+            if matched:
+                action = (
+                    ResolutionAction.link if single_token else ResolutionAction.merge
+                )
                 return ResolutionCandidate(
                     entity_name=entity.name,
                     existing_node_id=ex.node_id,
                     existing_name=ex.name,
                     score=1.0,
-                    action=ResolutionAction.merge,
+                    action=action,
                     method="level_1",
                 )
-            # Check aliases
-            for alias in ex.aliases:
-                if normalized == normalize_name(alias):
-                    return ResolutionCandidate(
-                        entity_name=entity.name,
-                        existing_node_id=ex.node_id,
-                        existing_name=ex.name,
-                        score=1.0,
-                        action=ResolutionAction.merge,
-                        method="level_1",
-                    )
 
         # --- Level 2: fuzzy scoring ---
         best_candidate: ResolutionCandidate | None = None
@@ -455,14 +455,14 @@ class MergeExecutor:
         1. Get both nodes
         2. Count transferable relationships (for MergeResult)
         3. Add absorbed name + aliases to survivor's aliases
-        4. Create MERGED_FROM relation (permanent traceability)
+        4. Store merge traceability on survivor properties
         5. Delete absorbed node (DETACH DELETE removes its relationships)
         6. Return MergeResult
 
-        Note: In a real Neo4j deployment, relationship transfer is done
-        atomically via Cypher (re-pointing rels from absorbed to survivor).
-        Here we count rels for the result and rely on DETACH DELETE + the
-        MERGED_FROM relation for traceability.
+        Merge traceability is stored as ``merged_from_ids`` on the survivor
+        node rather than as a MERGED_FROM relationship, because
+        ``GraphStore.delete_node`` uses ``DETACH DELETE`` which would
+        destroy any relationship pointing to the absorbed node.
         """
         survivor_node = await self._graph.get_node(survivor_id)
         absorbed_node = await self._graph.get_node(absorbed_id)
@@ -494,12 +494,16 @@ class MergeExecutor:
                 new_aliases.append(alias_name)
                 all_existing.add(alias_name)
 
-        # Update survivor's aliases
-        await self._graph.update_node(survivor_id, aliases=list(all_existing))
+        # --- Store merge traceability on survivor node ---
+        existing_merged = getattr(survivor_node, "merged_from_ids", None) or []
+        merged_from_ids = list(dict.fromkeys([*existing_merged, absorbed_id]))
 
-        # --- Create MERGED_FROM relation (before deleting absorbed) ---
-        merged_from = MergedFrom(merge_run_id=merge_run_id)
-        await self._graph.create_relationship(survivor_id, absorbed_id, merged_from)
+        await self._graph.update_node(
+            survivor_id,
+            aliases=list(all_existing),
+            merged_from_ids=merged_from_ids,
+            last_merge_run_id=merge_run_id,
+        )
 
         # --- Delete absorbed node (DETACH DELETE removes all its rels) ---
         await self._graph.delete_node(absorbed_id)

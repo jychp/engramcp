@@ -259,6 +259,16 @@ class TestEntityResolver:
         assert result.action == ResolutionAction.merge
         assert result.method == "level_1"
 
+    async def test_level_1_single_token_exact_match_returns_link(self):
+        """Single-token names never auto-merge, even on exact Level 1 match."""
+        resolver = EntityResolver()
+        entity = _extracted("Maxwell")
+        existing = [_existing("Maxwell")]
+        result = await resolver.resolve(entity, existing)
+        assert result.action == ResolutionAction.link
+        assert result.method == "level_1"
+        assert result.score == 1.0
+
     async def test_level_2_high_score_auto_merges(self):
         resolver = EntityResolver()
         entity = _extracted(
@@ -508,20 +518,15 @@ class TestMergeExecutor:
         # update_node should have been called with aliases
         graph.update_node.assert_called()
 
-    async def test_merged_from_relation_created(self):
+    async def test_merge_traceability_stored_on_survivor(self):
         graph = self._make_mock_graph()
         executor = MergeExecutor(graph)
         await executor.execute_merge("survivor_1", "absorbed_1", "run_001")
-        # create_relationship should include a MERGED_FROM call
-        rel_calls = graph.create_relationship.call_args_list
-        merged_from_calls = [
-            c
-            for c in rel_calls
-            if hasattr(c.args[2] if len(c.args) > 2 else c.kwargs.get("rel"), "rel_type")
-            and (c.args[2] if len(c.args) > 2 else c.kwargs.get("rel")).rel_type
-            == "MERGED_FROM"
-        ]
-        assert len(merged_from_calls) >= 1
+        # update_node should store merged_from_ids and last_merge_run_id
+        update_call = graph.update_node.call_args
+        assert "merged_from_ids" in update_call.kwargs
+        assert "absorbed_1" in update_call.kwargs["merged_from_ids"]
+        assert update_call.kwargs["last_merge_run_id"] == "run_001"
 
     async def test_possibly_same_as_removed_on_merge(self):
         graph = self._make_mock_graph()
