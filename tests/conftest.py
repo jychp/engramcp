@@ -102,6 +102,22 @@ async def graph_store(neo4j_driver, _graph_schema_initialized):
     return GraphStore(neo4j_driver)
 
 
+@pytest.fixture()
+async def traceability(neo4j_driver, _graph_schema_initialized):
+    """Yield a SourceTraceability connected to the test Neo4j container."""
+    from engramcp.graph.traceability import SourceTraceability
+
+    return SourceTraceability(neo4j_driver)
+
+
+@pytest.fixture()
+async def confidence_engine(graph_store, traceability):
+    """Yield a ConfidenceEngine wired to graph_store and traceability."""
+    from engramcp.engine.confidence import ConfidenceEngine
+
+    return ConfidenceEngine(graph_store, traceability)
+
+
 # ---------------------------------------------------------------------------
 # Redis
 # ---------------------------------------------------------------------------
