@@ -62,6 +62,7 @@ class SendMemoryInput(BaseModel):
     """Input for send_memory tool."""
 
     content: str = Field(
+        max_length=65536,
         description="The affirmation, fact, or observation as free text.",
     )
     source: SourceInput | None = Field(
@@ -82,11 +83,14 @@ class GetMemoryInput(BaseModel):
     """Input for get_memory tool."""
 
     query: str = Field(
+        max_length=10000,
         description="Natural language search query.",
     )
     max_depth: int = Field(
         default=3,
-        description="Maximum causal chain traversal depth.",
+        ge=1,
+        le=10,
+        description="Maximum causal chain traversal depth (reserved for Layer 6).",
     )
     min_confidence: str = Field(
         default="F6",
@@ -102,12 +106,53 @@ class GetMemoryInput(BaseModel):
     )
     limit: int = Field(
         default=20,
+        ge=1,
+        le=1000,
         description="Maximum number of memories to return.",
     )
     compact: bool = Field(
         default=False,
         description="Compact mode: omit sources, chains, and participants.",
     )
+
+
+class ContestPayload(BaseModel):
+    """Payload for the ``contest`` correction action."""
+
+    reason: str = Field(description="Why the memory is being contested.")
+
+
+class AnnotatePayload(BaseModel):
+    """Payload for the ``annotate`` correction action."""
+
+    note: str = Field(description="Annotation text to add.")
+
+
+class MergeEntitiesPayload(BaseModel):
+    """Payload for the ``merge_entities`` correction action."""
+
+    merge_with: str = Field(description="ID of the entity to merge with.")
+
+
+class SplitEntityPayload(BaseModel):
+    """Payload for the ``split_entity`` correction action."""
+
+    split_into: list[str] = Field(description="Labels for the resulting entities.")
+
+
+class ReclassifyPayload(BaseModel):
+    """Payload for the ``reclassify`` correction action."""
+
+    new_type: str = Field(description="New ontology type for the memory.")
+
+
+CorrectionPayload = (
+    ContestPayload
+    | AnnotatePayload
+    | MergeEntitiesPayload
+    | SplitEntityPayload
+    | ReclassifyPayload
+)
 
 
 class CorrectMemoryInput(BaseModel):
@@ -322,6 +367,10 @@ class MetaInfo(BaseModel):
 class GetMemoryResult(BaseModel):
     """Response from get_memory."""
 
+    status: str = Field(
+        default="ok",
+        description="Response status (ok, error).",
+    )
     memories: list[MemoryEntry] = Field(
         default_factory=list,
         description="Matching memories ordered by relevance.",
