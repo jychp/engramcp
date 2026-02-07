@@ -165,6 +165,12 @@ Public-facing file for users/contributors. Update when:
 - Changes to requirements or installation
 - Modifications to public config structure
 
+### GitHub Issue Templates
+Issue intake files in `.github/ISSUE_TEMPLATE/`. Update when:
+- Issue taxonomy changes (bug/feature/question/improvement categories)
+- Required triage metadata changes
+- Security/support routing links change
+
 ### CLAUDE.md/AGENTS.md (this file)
 Technical reference for Claude. Update when:
 - After any significant code modification
