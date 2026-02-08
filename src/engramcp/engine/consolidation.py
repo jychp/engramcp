@@ -242,7 +242,11 @@ class ConsolidationPipeline:
                 name_to_node_id[entity.name] = node_id
 
             elif candidate.action == ResolutionAction.merge:
-                assert candidate.existing_node_id is not None
+                if candidate.existing_node_id is None:
+                    result.errors.append(
+                        f"Resolver returned merge without target for '{entity.name}'"
+                    )
+                    continue
                 # Create new node, then merge into existing
                 new_node_id = await self._create_entity_node(entity, result)
                 merge_result = await self._merger.execute_merge(
@@ -256,7 +260,11 @@ class ConsolidationPipeline:
                 result.entities_merged += 1
 
             elif candidate.action in (ResolutionAction.link, ResolutionAction.review):
-                assert candidate.existing_node_id is not None
+                if candidate.existing_node_id is None:
+                    result.errors.append(
+                        f"Resolver returned link/review without target for '{entity.name}'"
+                    )
+                    continue
                 new_node_id = await self._create_entity_node(entity, result)
                 name_to_node_id[entity.name] = new_node_id
                 # Create POSSIBLY_SAME_AS relationship

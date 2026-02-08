@@ -25,6 +25,7 @@ or Redis.  Redis was chosen because:
 engramcp:fragment:{id}     → JSON string (SET with EX ttl)
 engramcp:recency           → Sorted Set (score=timestamp, member=id)
 engramcp:keyword:{word}    → Set of fragment IDs (with EX ttl)
+engramcp:frag_kw:{id}      → JSON keywords per fragment (SET with EX ttl)
 ```
 
 ## Data Model
@@ -33,7 +34,7 @@ engramcp:keyword:{word}    → Set of fragment IDs (with EX ttl)
 
 ```python
 class MemoryFragment(BaseModel):
-    id: str               # auto-generated "mem_{hex8}"
+    id: str               # auto-generated "mem_{hex16}"
     content: str
     type: str = "Fact"
     dynamic_type: str | None
@@ -55,7 +56,7 @@ class MemoryFragment(BaseModel):
 | `get(id)` | Retrieve by ID (or `None` if expired) |
 | `exists(id)` | Check if fragment exists |
 | `delete(id)` | Remove fragment and clean indexes |
-| `search(query, min_confidence, limit)` | Keyword search with confidence filter |
+| `search(query, min_confidence)` | Keyword search with confidence filter |
 | `get_recent(limit)` | Most recent fragments via sorted set |
 | `count()` | Number of live fragments |
 | `clear()` | Remove all `engramcp:*` keys |

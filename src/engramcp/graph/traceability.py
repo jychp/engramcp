@@ -46,6 +46,13 @@ def _node_to_source(props: dict) -> Source:
     return Source.model_validate(_convert_props(props))
 
 
+def _validate_max_depth(max_depth: int) -> int:
+    if max_depth < 1 or max_depth > 50:
+        msg = f"max_depth must be between 1 and 50, got {max_depth}"
+        raise ValueError(msg)
+    return max_depth
+
+
 # ---------------------------------------------------------------------------
 # SourceTraceability
 # ---------------------------------------------------------------------------
@@ -65,8 +72,9 @@ class SourceTraceability:
         Returns an ordered list from the starting source to the root
         (the terminal source with no outgoing ``CITES``).
         """
+        depth = _validate_max_depth(max_depth)
         query = (
-            f"MATCH p = (s:Source {{id: $id}})-[:CITES*0..{max_depth}]->(root:Source) "
+            f"MATCH p = (s:Source {{id: $id}})-[:CITES*0..{depth}]->(root:Source) "
             "WHERE NOT (root)-[:CITES]->(:Source) "
             "RETURN [n IN nodes(p) | properties(n)] AS chain "
             "ORDER BY length(p) DESC "
@@ -100,6 +108,7 @@ class SourceTraceability:
 
         Conservative: if either source is not found, returns not independent.
         """
+        depth = _validate_max_depth(max_depth)
         # First verify both sources exist
         exists_query = (
             "OPTIONAL MATCH (a:Source {id: $a_id}) "
@@ -118,8 +127,8 @@ class SourceTraceability:
 
         # Check for common ancestors (including direct citation)
         ancestor_query = (
-            f"MATCH (a:Source {{id: $a_id}})-[:CITES*0..{max_depth}]->(ancestor:Source),"
-            f"      (b:Source {{id: $b_id}})-[:CITES*0..{max_depth}]->(ancestor) "
+            f"MATCH (a:Source {{id: $a_id}})-[:CITES*0..{depth}]->(ancestor:Source),"
+            f"      (b:Source {{id: $b_id}})-[:CITES*0..{depth}]->(ancestor) "
             "RETURN ancestor.id AS common_ancestor "
             "LIMIT 1"
         )
@@ -167,3 +176,27 @@ class SourceTraceability:
             if chain:
                 chains.append(SourceChain(sources=chain, root=chain[-1]))
         return chains
+
+    async def find_dependent_pairs(
+        self, source_ids: list[str], *, max_depth: int = 10
+    ) -> list[tuple[str, str]]:
+        """Return source ID pairs that share at least one citation ancestor."""
+        depth = _validate_max_depth(max_depth)
+        if len(source_ids) < 2:
+            return []
+
+        query = (
+            "MATCH (s:Source)-[:CITES*0.."
+            f"{depth}"
+            "]->(ancestor:Source) "
+            "WHERE s.id IN $source_ids "
+            "WITH ancestor, collect(DISTINCT s.id) AS ids "
+            "WHERE size(ids) > 1 "
+            "UNWIND ids AS a_id "
+            "UNWIND ids AS b_id "
+            "WITH a_id, b_id WHERE a_id < b_id "
+            "RETURN DISTINCT a_id, b_id"
+        )
+        async with self._driver.session() as session:
+            result = await session.run(query, source_ids=source_ids)
+            return [(record["a_id"], record["b_id"]) async for record in result]

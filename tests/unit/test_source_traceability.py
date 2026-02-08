@@ -158,6 +158,16 @@ class TestIndependence:
         assert result.independent is False
         assert "unknown" in result.reason.lower() or "not found" in result.reason.lower()
 
+    async def test_check_independence_rejects_invalid_depth(
+        self, graph_store, traceability
+    ):
+        src_a = Source(type="testimony", reliability=Reliability.B)
+        src_b = Source(type="document", reliability=Reliability.A)
+        await graph_store.create_node(src_a)
+        await graph_store.create_node(src_b)
+        with pytest.raises(ValueError):
+            await traceability.check_independence(src_a.id, src_b.id, max_depth=0)
+
 
 # ===================================================================
 # TestTraceability
@@ -220,3 +230,18 @@ class TestTraceability:
         assert len(chain.sources) == 2
         assert chain.sources[0].id == src.id
         assert chain.sources[1].id == root.id
+
+    async def test_find_dependent_pairs(self, graph_store, traceability):
+        root = Source(type="original", reliability=Reliability.A)
+        src_a = Source(type="article_a", reliability=Reliability.C)
+        src_b = Source(type="article_b", reliability=Reliability.C)
+        src_c = Source(type="independent", reliability=Reliability.B)
+        await graph_store.create_node(root)
+        await graph_store.create_node(src_a)
+        await graph_store.create_node(src_b)
+        await graph_store.create_node(src_c)
+        await graph_store.create_relationship(src_a.id, root.id, Cites())
+        await graph_store.create_relationship(src_b.id, root.id, Cites())
+
+        pairs = await traceability.find_dependent_pairs([src_a.id, src_b.id, src_c.id])
+        assert (src_a.id, src_b.id) in pairs or (src_b.id, src_a.id) in pairs

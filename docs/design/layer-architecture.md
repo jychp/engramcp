@@ -15,12 +15,12 @@ EngraMCP is decomposed into 8 testable layers, numbered 0 (innermost, data) to 7
 
 ```
 Layer 7 — MCP Interface          server.py
-Layer 6 — Retrieval Engine        engine/retrieval.py
-Layer 5 — Concept Emergence       engine/concepts.py, engine/demand.py
+Layer 6 — Retrieval Engine        (planned)
+Layer 5 — Concept Emergence       (planned)
 Layer 4 — Consolidation Engine    engine/consolidation.py, engine/extraction.py
 Layer 3 — Confidence Engine       engine/confidence.py
 Layer 2 — Graph Store             graph/store.py, graph/schema.py
-Layer 1 — Working Memory          memory/working.py, memory/persistence.py
+Layer 1 — Working Memory          memory/store.py
 Layer 0 — Graph Model             models/
 ```
 
@@ -42,7 +42,7 @@ See [MCP Interface design doc](mcp-interface.md) for details.
 
 ### Layer 6 — Retrieval Engine
 
-**Module**: `engine/retrieval.py`
+**Module**: planned (`engine/retrieval.py`)
 **Depends on**: Layer 1 (Working Memory), Layer 2 (Graph Store), Layer 5 (Concepts)
 
 Intelligent graph traversal with causal reasoning:
@@ -55,7 +55,7 @@ Also tracks query patterns for concept emergence (feeds Layer 5).
 
 ### Layer 5 — Concept Emergence
 
-**Modules**: `engine/concepts.py`, `engine/demand.py`
+**Modules**: planned (`engine/concepts.py`, `engine/demand.py`)
 **Depends on**: Layer 4 (Consolidation), Layer 2 (Graph Store)
 
 Domain concepts emerge from **retrieval demand**, not from extraction volume. The system only creates new types when users actually query for them.
@@ -67,7 +67,7 @@ See [DD3 — Concept Emergence](../drafts/deep-dives.md#dd3) for the full mechan
 
 ### Layer 4 — Consolidation Engine
 
-**Modules**: `engine/consolidation.py`, `engine/extraction.py`, `engine/abstraction.py`
+**Modules**: `engine/consolidation.py`, `engine/extraction.py`
 **Depends on**: Layer 2 (Graph Store), Layer 3 (Confidence)
 
 Async batch pipeline triggered when Working Memory buffer reaches a threshold:
@@ -105,14 +105,13 @@ Neo4j CRUD operations matching the ontology schema:
 
 ### Layer 1 — Working Memory
 
-**Modules**: `memory/working.py`, `memory/persistence.py`
+**Module**: `memory/store.py`
 **Depends on**: none (standalone)
 
 In-memory short-term buffer:
 - Fast storage for raw `MemoryFragment` objects
 - TTL-based expiration
 - Buffer size limits
-- Flush-to-disk for persistence across restarts
 - Flush trigger on fragment count threshold (feeds Layer 4)
 
 ### Layer 0 — Graph Model
@@ -121,11 +120,11 @@ In-memory short-term buffer:
 **Depends on**: none (standalone)
 
 Data definitions:
-- `models/mcp.py` — Pydantic input/output schemas for MCP tools
+- `models/schemas.py` — Pydantic input/output schemas for MCP tools
 - `models/nodes.py` — node type definitions (base + derived)
 - `models/relations.py` — relationship type definitions
 - `models/confidence.py` — NATO rating model
-- `models/agent.py` — agent fingerprinting
+- `models/__init__.py` — agent fingerprinting utility
 
 ---
 
@@ -176,11 +175,11 @@ Upper layers are tested with mocks that get progressively replaced as lower laye
 
 | Layer | Initially mocked by | Replaced when |
 |-------|-------------------|---------------|
-| Working Memory (1) | In-memory dict in `server.py` | Layer 1 implemented |
+| Working Memory (1) | In-memory dict in `server.py` | Replaced by Redis `memory/store.py` |
 | Graph Store (2) | Not needed until Layer 2 | Layer 2 implemented |
 | Confidence Engine (3) | Static ratings | Layer 3 implemented |
 | Consolidation LLM (4) | Deterministic JSON responses | Layer 4 implemented |
-| Retrieval Engine (6) | Keyword matching in `server.py` | Layer 6 implemented |
+| Retrieval Engine (6) | Keyword matching in `server.py` + `memory/store.py` | Layer 6 implemented |
 
 ---
 

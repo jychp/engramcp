@@ -417,7 +417,8 @@ class EntityResolver:
         candidate: ResolutionCandidate,
     ) -> ResolutionAction:
         """Ask the LLM to resolve ambiguity."""
-        assert self._llm is not None
+        if self._llm is None:
+            raise RuntimeError("LLM disambiguation requested but no LLM adapter is set")
         prompt = build_disambiguation_prompt(
             entity_a_name=entity.name,
             entity_a_context=entity.disambiguating_context or "",

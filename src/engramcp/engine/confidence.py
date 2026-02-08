@@ -196,7 +196,8 @@ class ConfidenceEngine:
         if len(source_ids) == 1:
             return 1, source_ids
 
-        # Group sources by independence using union-find
+        # Group sources by independence using union-find.
+        # Dependent pairs are fetched in one graph query to avoid N^2 round-trips.
         parent: dict[str, str] = {sid: sid for sid in source_ids}
 
         def find(x: str) -> str:
@@ -210,13 +211,9 @@ class ConfidenceEngine:
             if px != py:
                 parent[px] = py
 
-        for i in range(len(source_ids)):
-            for j in range(i + 1, len(source_ids)):
-                result = await self._trace.check_independence(
-                    source_ids[i], source_ids[j]
-                )
-                if not result.independent:
-                    union(source_ids[i], source_ids[j])
+        dependent_pairs = await self._trace.find_dependent_pairs(source_ids)
+        for a_id, b_id in dependent_pairs:
+            union(a_id, b_id)
 
         # Count distinct groups
         groups: set[str] = {find(sid) for sid in source_ids}

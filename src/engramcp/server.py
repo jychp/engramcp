@@ -7,15 +7,19 @@ search.  Call ``configure(redis_url=...)`` before using the server.
 from __future__ import annotations
 
 from fastmcp import FastMCP
+from pydantic import ValidationError
 from redis.asyncio import Redis  # type: ignore[import-untyped]
 
 from engramcp.memory import create_memory_fragment
 from engramcp.memory import WorkingMemory
 from engramcp.models.schemas import CorrectionAction
+from engramcp.models.schemas import CorrectMemoryInput
 from engramcp.models.schemas import CorrectMemoryResult
+from engramcp.models.schemas import GetMemoryInput
 from engramcp.models.schemas import GetMemoryResult
 from engramcp.models.schemas import MemoryEntry
 from engramcp.models.schemas import MetaInfo
+from engramcp.models.schemas import SendMemoryInput
 from engramcp.models.schemas import SendMemoryResult
 from engramcp.models.schemas import SourceEntry
 
@@ -41,6 +45,8 @@ async def configure(
     Must be called before the MCP tools can function.
     """
     global _wm
+    if _wm is not None:
+        await _wm.close()
     client = Redis.from_url(redis_url)
     _wm = WorkingMemory(
         client,
@@ -49,6 +55,14 @@ async def configure(
         flush_threshold=flush_threshold,
         on_flush=on_flush,
     )
+
+
+async def shutdown() -> None:
+    """Close backend clients and release server resources."""
+    global _wm
+    if _wm is not None:
+        await _wm.close()
+        _wm = None
 
 
 async def _reset_working_memory() -> None:
@@ -72,6 +86,64 @@ def _get_wm() -> WorkingMemory:
 _VALID_RELIABILITY_LETTERS = set("ABCDEF")
 
 
+def _validation_message(exc: ValidationError) -> str:
+    err = exc.errors()[0] if exc.errors() else {}
+    return str(err.get("msg", "Invalid input"))
+
+
+def _send_rejected(error_code: str, message: str) -> SendMemoryResult:
+    return SendMemoryResult(
+        memory_id="",
+        status="rejected",
+        error_code=error_code,
+        message=message,
+    )
+
+
+def _get_error(
+    *,
+    query: str,
+    max_depth: int,
+    min_confidence: str,
+    error_code: str,
+    message: str,
+) -> GetMemoryResult:
+    return GetMemoryResult(
+        status="error",
+        error_code=error_code,
+        message=message,
+        memories=[],
+        contradictions=[],
+        meta=MetaInfo(
+            query=query,
+            total_found=0,
+            returned=0,
+            truncated=False,
+            max_depth_used=max_depth,
+            min_confidence_applied=min_confidence,
+            working_memory_hits=0,
+            graph_hits=0,
+        ),
+    )
+
+
+def _correct_rejected(
+    target_id: str,
+    *,
+    action: CorrectionAction = CorrectionAction.contest,
+    error_code: str,
+    message: str,
+) -> CorrectMemoryResult:
+    return CorrectMemoryResult(
+        target_id=target_id,
+        action=action,
+        status="rejected",
+        error_code=error_code,
+        message=message,
+        details={},
+    )
+
+
 @mcp.tool
 async def send_memory(
     content: str,
@@ -89,21 +161,35 @@ async def send_memory(
     """
     wm = _get_wm()
 
+    try:
+        validated = SendMemoryInput.model_validate(
+            {
+                "content": content,
+                "source": source,
+                "confidence_hint": confidence_hint,
+                "agent_id": agent_id,
+            }
+        )
+    except ValidationError as exc:
+        return _send_rejected("validation_error", _validation_message(exc))
+
     # Validate confidence_hint
-    if confidence_hint is not None:
-        hint = confidence_hint.upper()
+    if validated.confidence_hint is not None:
+        hint = validated.confidence_hint.upper()
         if hint not in _VALID_RELIABILITY_LETTERS:
-            return SendMemoryResult(
-                memory_id="",
-                status="rejected",
+            return _send_rejected(
+                "invalid_confidence_hint",
+                "confidence_hint must be a letter between A and F.",
             )
-        confidence_hint = hint
+        validated.confidence_hint = hint
 
     fragment = create_memory_fragment(
-        content=content,
-        source=source,
-        confidence_hint=confidence_hint,
-        agent_id=agent_id,
+        content=validated.content,
+        source=(
+            validated.source.model_dump(exclude_none=True) if validated.source else None
+        ),
+        confidence_hint=validated.confidence_hint,
+        agent_id=validated.agent_id,
     )
 
     await wm.store(fragment)
@@ -132,16 +218,37 @@ async def get_memory(
         compact: Compact mode — omit sources, chains, participants.
     """
     wm = _get_wm()
-    matches = await wm.search(query, min_confidence=min_confidence)
+    try:
+        validated = GetMemoryInput.model_validate(
+            {
+                "query": query,
+                "max_depth": max_depth,
+                "min_confidence": min_confidence,
+                "include_contradictions": include_contradictions,
+                "include_sources": include_sources,
+                "limit": limit,
+                "compact": compact,
+            }
+        )
+    except ValidationError as exc:
+        return _get_error(
+            query=query,
+            max_depth=max_depth,
+            min_confidence=min_confidence,
+            error_code="validation_error",
+            message=_validation_message(exc),
+        )
+
+    matches = await wm.search(validated.query, min_confidence=validated.min_confidence)
 
     total_found = len(matches)
-    truncated = total_found > limit
-    matches = matches[:limit]
+    truncated = total_found > validated.limit
+    matches = matches[: validated.limit]
 
     memories: list[MemoryEntry] = []
     for m in matches:
         sources = []
-        if not compact and include_sources and m.sources:
+        if not validated.compact and validated.include_sources and m.sources:
             sources = [SourceEntry(**s) for s in m.sources]
 
         memories.append(
@@ -152,19 +259,19 @@ async def get_memory(
                 content=m.content,
                 confidence=m.confidence,
                 properties=m.properties,
-                participants=[] if compact else m.participants,
-                causal_chain=[] if compact else m.causal_chain,
+                participants=[] if validated.compact else m.participants,
+                causal_chain=[] if validated.compact else m.causal_chain,
                 sources=sources,
             )
         )
 
     meta = MetaInfo(
-        query=query,
+        query=validated.query,
         total_found=total_found,
         returned=len(memories),
         truncated=truncated,
-        max_depth_used=max_depth,
-        min_confidence_applied=min_confidence,
+        max_depth_used=validated.max_depth,
+        min_confidence_applied=validated.min_confidence,
         working_memory_hits=len(memories),
         graph_hits=0,
     )
@@ -191,33 +298,46 @@ async def correct_memory(
         payload: Action-specific data.
     """
     wm = _get_wm()
+    try:
+        validated = CorrectMemoryInput.model_validate(
+            {
+                "target_id": target_id,
+                "action": action,
+                "payload": payload,
+            }
+        )
+    except ValidationError as exc:
+        return _correct_rejected(
+            target_id,
+            error_code="validation_error",
+            message=_validation_message(exc),
+        )
 
     # Validate action
     try:
-        action_enum = CorrectionAction(action)
+        action_enum = CorrectionAction(validated.action)
     except ValueError:
-        return CorrectMemoryResult(
-            target_id=target_id,
-            action=CorrectionAction.contest,  # placeholder
-            status="rejected",
-            details={"error": f"Invalid action: {action}"},
+        return _correct_rejected(
+            validated.target_id,
+            error_code="invalid_action",
+            message=f"Invalid action: {validated.action}",
         )
 
     # Check target exists
-    if not await wm.exists(target_id):
+    if not await wm.exists(validated.target_id):
         return CorrectMemoryResult(
-            target_id=target_id,
+            target_id=validated.target_id,
             action=action_enum,
             status="not_found",
         )
 
     # Mock: apply correction (real logic in later sprints)
     details: dict = {}
-    if payload:
-        details = payload
+    if validated.payload:
+        details = validated.payload
 
     return CorrectMemoryResult(
-        target_id=target_id,
+        target_id=validated.target_id,
         action=action_enum,
         status="applied",
         details=details,

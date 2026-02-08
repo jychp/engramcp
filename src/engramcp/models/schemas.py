@@ -71,6 +71,7 @@ class SendMemoryInput(BaseModel):
     )
     confidence_hint: str | None = Field(
         default=None,
+        pattern=r"^[A-Fa-f]$",
         description="Source reliability hint, single letter A-F.",
     )
     agent_id: str | None = Field(
@@ -94,6 +95,7 @@ class GetMemoryInput(BaseModel):
     )
     min_confidence: str = Field(
         default="F6",
+        pattern=r"^[A-Fa-f][1-6]$",
         description="Minimum NATO rating filter, e.g. 'B2'.",
     )
     include_contradictions: bool = Field(
@@ -184,6 +186,14 @@ class SendMemoryResult(BaseModel):
     status: str = Field(
         default="accepted",
         description="Ingestion status (accepted, rejected).",
+    )
+    error_code: str | None = Field(
+        default=None,
+        description="Machine-readable error code when status is rejected.",
+    )
+    message: str | None = Field(
+        default=None,
+        description="Human-readable error details when status is rejected.",
     )
 
 
@@ -371,6 +381,14 @@ class GetMemoryResult(BaseModel):
         default="ok",
         description="Response status (ok, error).",
     )
+    error_code: str | None = Field(
+        default=None,
+        description="Machine-readable error code when status is error.",
+    )
+    message: str | None = Field(
+        default=None,
+        description="Human-readable error details when status is error.",
+    )
     memories: list[MemoryEntry] = Field(
         default_factory=list,
         description="Matching memories ordered by relevance.",
@@ -401,6 +419,14 @@ class CorrectMemoryResult(BaseModel):
     status: str = Field(
         default="applied",
         description="Outcome status (applied, not_found, rejected).",
+    )
+    error_code: str | None = Field(
+        default=None,
+        description="Machine-readable error code when status is rejected.",
+    )
+    message: str | None = Field(
+        default=None,
+        description="Human-readable error details when status is rejected.",
     )
     details: dict = Field(
         default_factory=dict,

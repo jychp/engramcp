@@ -22,6 +22,42 @@ from engramcp.models.relations import RelationshipBase
 from engramcp.models.relations import ResolutionStatus
 
 # ---------------------------------------------------------------------------
+# Query safety guards
+# ---------------------------------------------------------------------------
+
+_ALLOWED_NODE_LABELS = {label for labels in LABEL_TO_MODEL for label in labels}
+_ALLOWED_NODE_LABELS.add("Memory")
+_ALLOWED_REL_TYPES = {
+    "SOURCED_FROM",
+    "DERIVED_FROM",
+    "CITES",
+    "CAUSED_BY",
+    "LEADS_TO",
+    "PRECEDED",
+    "FOLLOWED",
+    "SUPPORTS",
+    "CONTRADICTS",
+    "PARTICIPATED_IN",
+    "DECIDED_BY",
+    "OBSERVED_BY",
+    "MENTIONS",
+    "CONCERNS",
+    "GENERALIZES",
+    "INSTANCE_OF",
+    "POSSIBLY_SAME_AS",
+    "MERGED_FROM",
+}
+_ALLOWED_DIRECTIONS = {"outgoing", "incoming", "both"}
+
+
+def _require_allowed(value: str, allowed: set[str], *, field_name: str) -> str:
+    if value not in allowed:
+        msg = f"Invalid {field_name}: {value!r}"
+        raise ValueError(msg)
+    return value
+
+
+# ---------------------------------------------------------------------------
 # Serialization helpers
 # ---------------------------------------------------------------------------
 
@@ -88,7 +124,11 @@ class GraphStore:
 
         Labels are derived from ``node.node_labels``.
         """
-        labels = ":".join(node.node_labels)
+        labels_tuple = tuple(
+            _require_allowed(label, _ALLOWED_NODE_LABELS, field_name="label")
+            for label in node.node_labels
+        )
+        labels = ":".join(labels_tuple)
         props = _serialize_props(node)
         query = f"CREATE (n:{labels} $props) RETURN n.id AS id"
         async with self._driver.session() as session:
@@ -143,7 +183,9 @@ class GraphStore:
         rel: Relationship,
     ) -> bool:
         """Create a relationship between two nodes. Return ``True`` if both nodes exist."""
-        rel_type = rel.rel_type
+        rel_type = _require_allowed(
+            rel.rel_type, _ALLOWED_REL_TYPES, field_name="relationship type"
+        )
         props = _serialize_props(rel)
         query = (
             f"MATCH (a:Memory {{id: $from_id}}), (b:Memory {{id: $to_id}}) "
@@ -166,9 +208,16 @@ class GraphStore:
         Each result is a dict with ``type``, ``props``, ``from_id``, ``to_id``.
         """
         if rel_type:
+            _require_allowed(
+                rel_type, _ALLOWED_REL_TYPES, field_name="relationship type"
+            )
             rel_match = f"[r:{rel_type}]"
         else:
             rel_match = "[r]"
+
+        direction = _require_allowed(
+            direction, _ALLOWED_DIRECTIONS, field_name="direction"
+        )
 
         if direction == "outgoing":
             pattern = f"(n:Memory {{id: $id}})-{rel_match}->(b)"
@@ -195,6 +244,7 @@ class GraphStore:
 
     async def find_by_label(self, label: str) -> list[MemoryNode]:
         """Find all nodes with a specific label (e.g. ``'Agent'``, ``'Artifact'``)."""
+        _require_allowed(label, _ALLOWED_NODE_LABELS, field_name="label")
         query = (
             f"MATCH (n:{label}) " "RETURN properties(n) AS props, labels(n) AS labels"
         )
