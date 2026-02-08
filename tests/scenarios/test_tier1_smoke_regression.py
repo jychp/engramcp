@@ -12,13 +12,13 @@ from fastmcp import Client
 
 from engramcp.config import AuditConfig
 from engramcp.config import ConsolidationConfig
+from engramcp.evaluation import THRESHOLDS
 from engramcp.engine import LLMAdapter
 from engramcp.server import _get_wm
 from engramcp.server import configure
 from engramcp.server import mcp
 from engramcp.server import shutdown
 from tests.scenarios.helpers.metrics import emit_scenario_metric
-from tests.scenarios.helpers.metrics import THRESHOLDS
 from tests.scenarios.helpers.reporting import build_failure_context
 
 pytestmark = [pytest.mark.tier1]
