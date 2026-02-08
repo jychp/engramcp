@@ -71,14 +71,14 @@ Three-layer biomimetic memory engine exposed via MCP:
 ```
 Agent → send_memory → [Working Memory] → (async consolidation) → [Neo4j Knowledge Graph]
 Agent → get_memory  → [Retrieval Engine] → Working Memory + Graph traversal → Structured response
-Agent → correct_memory → [WM-first mutations + graph-aware merge/reclassify + audit]
+Agent → correct_memory → [WM-first contest/annotate + graph-aware split/merge/reclassify (WM fallback) + audit]
 ```
 
 ### Layers (top-down)
 
 | Layer | Module | Description |
 |---|---|---|
-| 7 | `server.py` | MCP interface + consolidation/retrieval assembly/wiring + correction audit flows (WM-first `contest`/`annotate`/`split_entity`, graph-aware `merge_entities` + derived-lifecycle-aware `reclassify`; consolidation requires explicit LLM provider wiring via `LLMConfig`/adapter) |
+| 7 | `server.py` | MCP interface + consolidation/retrieval assembly/wiring + correction audit flows (WM-first `contest`/`annotate`; graph-aware `split_entity`/`merge_entities`/derived-lifecycle-aware `reclassify` with WM fallback where applicable; consolidation requires explicit LLM provider wiring via `LLMConfig`/adapter) |
 | 6 | `engine/retrieval.py` | WM-first retrieval, bounded graph-context fallback (`max_depth`), scoring, synthesis, demand-hook emission |
 | 5 | `engine/concepts.py`, `engine/demand.py` | Concept emergence from retrieval demand |
 | 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline, LLM extraction, contradiction detection, abstraction |
