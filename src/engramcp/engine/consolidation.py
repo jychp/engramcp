@@ -413,30 +413,32 @@ class ConsolidationPipeline:
             stable_claim_id = _stable_claim_id(claim)
             existing_claim = await self._graph.get_node(stable_claim_id)
             if isinstance(existing_claim, MemoryBase):
-                claim_node_ids.append((stable_claim_id, claim))
-                continue
+                node_id = stable_claim_id
+                claim_node_ids.append((node_id, claim))
+            else:
+                try:
+                    node = model_cls(id=stable_claim_id, **kwargs)
+                except Exception as exc:
+                    result.errors.append(
+                        f"Failed to create {claim.claim_type} node: {exc}"
+                    )
+                    continue
 
-            try:
-                node = model_cls(id=stable_claim_id, **kwargs)
-            except Exception as exc:
-                result.errors.append(f"Failed to create {claim.claim_type} node: {exc}")
-                continue
+                node_id = await self._graph.create_node(node)
+                claim_node_ids.append((node_id, claim))
+                result.claims_created += 1
 
-            node_id = await self._graph.create_node(node)
-            claim_node_ids.append((node_id, claim))
-            result.claims_created += 1
-
-            await self._audit.log(
-                AuditEvent(
-                    event_type=AuditEventType.NODE_CREATED,
-                    payload={
-                        "run_id": result.run_id,
-                        "node_id": node_id,
-                        "node_type": claim.claim_type,
-                        "content": claim.content[:100],
-                    },
+                await self._audit.log(
+                    AuditEvent(
+                        event_type=AuditEventType.NODE_CREATED,
+                        payload={
+                            "run_id": result.run_id,
+                            "node_id": node_id,
+                            "node_type": claim.claim_type,
+                            "content": claim.content[:100],
+                        },
+                    )
                 )
-            )
 
             # Link claim to involved entities via CONCERNS
             for entity_name in claim.involved_entities:
