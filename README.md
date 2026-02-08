@@ -49,7 +49,7 @@ Current implemented foundation includes:
 - Consolidation pipeline and extraction engine scaffolding
 - Layer 5 concept-emergence bootstrap (query-demand tracking + concept candidate registry)
 - Layer 6 retrieval service (`engine/retrieval.py`) with WM-first strategy, scoring interface, and bounded graph-context fallback (`max_depth`, causal chains, source trail, contradictions)
-- `correct_memory` actions implemented with WM-first behavior for `contest`/`annotate`/`split_entity`/`reclassify` and graph-aware execution for `merge_entities` (WM fallback retained), with audit events
+- `correct_memory` actions implemented with WM-first behavior for `contest`/`annotate`/`split_entity`, graph-aware execution for `merge_entities`, and graph-aware derived lifecycle updates for `reclassify` (WM fallback retained), with audit events
 - Confidence engine with propagation logic
 - Security and quality workflows in CI
 - Uniform MCP validation and error response fields (`error_code`, `message`)

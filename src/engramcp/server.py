@@ -382,6 +382,84 @@ async def _merge_entities_in_graph(
     }
 
 
+async def _reclassify_in_graph(target_id: str, new_type: str) -> dict | None:
+    """Reclassify a graph node through lifecycle updates when Neo4j is configured."""
+    if _graph_driver is None:
+        return None
+
+    async with _graph_driver.session() as session:
+        result = await session.run(
+            "MATCH (n:Memory {id: $id}) "
+            "RETURN labels(n) AS labels, properties(n) AS props",
+            id=target_id,
+        )
+        record = await result.single()
+        if record is None:
+            return None
+
+        labels = set(record["labels"])
+        props = record["props"] or {}
+        known_types = (
+            "Fact",
+            "Event",
+            "Observation",
+            "Decision",
+            "Outcome",
+            "Agent",
+            "Artifact",
+            "Source",
+            "Pattern",
+            "Concept",
+            "Rule",
+        )
+        old_type = next((label for label in known_types if label in labels), "Memory")
+
+        history = props.get("reclassify_history", [])
+        if not isinstance(history, list):
+            history = []
+        now = time.time()
+        history.append(f"{old_type}->{new_type}@{now}")
+
+        updates: dict = {
+            "reclassify_history": history,
+            "reclassified_to": new_type,
+            "reclassified_at": now,
+            "updated_at": now,
+        }
+        details: dict = {
+            "old_type": old_type,
+            "new_type": new_type,
+            "storage": "graph",
+        }
+        if "Derived" in labels:
+            updates["status"] = "dissolved"
+            updates["dissolved_at"] = now
+            updates["dissolved_reason"] = f"reclassified_to_{new_type}"
+            details["lifecycle"] = {"target_status": "dissolved"}
+
+        await session.run(
+            "MATCH (n:Memory {id: $id}) SET n += $updates",
+            id=target_id,
+            updates=updates,
+        )
+
+    if "Derived" in labels:
+        from engramcp.engine.confidence import ConfidenceEngine
+        from engramcp.graph.traceability import SourceTraceability
+
+        confidence_engine = ConfidenceEngine(
+            GraphStore(_graph_driver),
+            SourceTraceability(_graph_driver),
+        )
+        cascade = await confidence_engine.cascade_contest(target_id)
+        details["lifecycle"]["cascade"] = {
+            "affected_nodes": cascade.affected_nodes,
+            "reason": cascade.reason,
+        }
+
+    return details
+
+
 @mcp.tool
 async def send_memory(
     content: str,
@@ -529,9 +607,11 @@ async def correct_memory(
             message=f"Invalid action: {validated.action}",
         )
 
-    if action_enum != CorrectionAction.merge_entities and not await wm.exists(
-        validated.target_id
-    ):
+    if action_enum in (
+        CorrectionAction.contest,
+        CorrectionAction.annotate,
+        CorrectionAction.split_entity,
+    ) and not await wm.exists(validated.target_id):
         return CorrectMemoryResult(
             target_id=validated.target_id,
             action=action_enum,
@@ -840,6 +920,26 @@ async def correct_memory(
                 message=_validation_message(exc),
             )
 
+        graph_details = await _reclassify_in_graph(
+            validated.target_id,
+            reclass_payload.new_type,
+        )
+        if graph_details is not None:
+            await _log_correct_memory_event(
+                {
+                    "target_id": validated.target_id,
+                    "action": action_enum.value,
+                    "status": "applied",
+                    **graph_details,
+                }
+            )
+            return CorrectMemoryResult(
+                target_id=validated.target_id,
+                action=action_enum,
+                status="applied",
+                details=graph_details,
+            )
+
         target = await wm.get(validated.target_id)
         if target is None:
             return CorrectMemoryResult(
@@ -874,6 +974,7 @@ async def correct_memory(
         details = {
             "old_type": old_type,
             "new_type": reclass_payload.new_type,
+            "storage": "working_memory",
         }
         await _log_correct_memory_event(
             {

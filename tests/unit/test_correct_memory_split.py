@@ -12,6 +12,11 @@ from engramcp.config import AuditConfig
 from engramcp.graph import GraphStore
 from engramcp.models.nodes import Agent
 from engramcp.models.nodes import AgentType
+from engramcp.models.nodes import Concept
+from engramcp.models.nodes import DerivedStatus
+from engramcp.models.nodes import Pattern
+from engramcp.models.nodes import Rule
+from engramcp.models.relations import DerivedFrom
 from engramcp.server import _get_wm
 from engramcp.server import configure
 from engramcp.server import mcp
@@ -372,6 +377,7 @@ class TestCorrectMemoryActions:
         assert data["action"] == "reclassify"
         assert data["details"]["old_type"] == "Fact"
         assert data["details"]["new_type"] == "Event"
+        assert data["details"]["storage"] == "working_memory"
 
         wm = _get_wm()
         updated = await wm.get(target_id)
@@ -386,3 +392,59 @@ class TestCorrectMemoryActions:
         assert event["payload"]["action"] == "reclassify"
         assert event["payload"]["old_type"] == "Fact"
         assert event["payload"]["new_type"] == "Event"
+
+    async def test_reclassify_derived_graph_node_updates_lifecycle(
+        self,
+        graph_split_client,
+        graph_store: GraphStore,
+    ):
+        client, audit_path = graph_split_client
+        pattern = Pattern(content="Recurring route detour", derivation_run_id="run-p")
+        concept = Concept(content="Weather disruption concept", derivation_run_id="run-c")
+        rule = Rule(content="Storms cause delays", derivation_run_id="run-r")
+        for node in (pattern, concept, rule):
+            await graph_store.create_node(node)
+        await graph_store.create_relationship(
+            concept.id,
+            pattern.id,
+            DerivedFrom(derivation_run_id="run-c", derivation_method="manual"),
+        )
+        await graph_store.create_relationship(
+            rule.id,
+            concept.id,
+            DerivedFrom(derivation_run_id="run-r", derivation_method="manual"),
+        )
+
+        result = await client.call_tool(
+            "correct_memory",
+            {
+                "target_id": pattern.id,
+                "action": "reclassify",
+                "payload": {"new_type": "Coincidence"},
+            },
+        )
+        data = _parse(result)
+
+        assert data["status"] == "applied"
+        assert data["details"]["storage"] == "graph"
+        assert data["details"]["old_type"] == "Pattern"
+        assert data["details"]["new_type"] == "Coincidence"
+        assert data["details"]["lifecycle"]["target_status"] == "dissolved"
+        assert concept.id in data["details"]["lifecycle"]["cascade"]["affected_nodes"]
+        assert rule.id in data["details"]["lifecycle"]["cascade"]["affected_nodes"]
+
+        updated_pattern = await graph_store.get_node(pattern.id)
+        updated_concept = await graph_store.get_node(concept.id)
+        updated_rule = await graph_store.get_node(rule.id)
+        assert updated_pattern is not None
+        assert updated_concept is not None
+        assert updated_rule is not None
+        assert updated_pattern.status == DerivedStatus.dissolved
+        assert updated_concept.status == DerivedStatus.dissolved
+        assert updated_rule.status == DerivedStatus.dissolved
+
+        lines = audit_path.read_text().strip().splitlines()
+        assert len(lines) == 1
+        event = json.loads(lines[0])
+        assert event["payload"]["action"] == "reclassify"
+        assert event["payload"]["storage"] == "graph"
