@@ -9,6 +9,7 @@ import pytest
 from fastmcp import Client
 
 from engramcp.config import AuditConfig
+from engramcp.config import LLMConfig
 from engramcp.graph import GraphStore
 from engramcp.models.nodes import Agent
 from engramcp.models.nodes import AgentType
@@ -44,6 +45,7 @@ async def graph_split_client(redis_container, neo4j_container, tmp_path: Path):
         redis_url=redis_container,
         enable_consolidation=True,
         neo4j_url=neo4j_container,
+        llm_config=LLMConfig(provider="noop"),
         audit_config=AuditConfig(file_path=str(audit_path), enabled=True),
     )
     async with Client(mcp) as client:
