@@ -87,16 +87,16 @@ asyncio.run(configure(redis_url="redis://localhost:6379"))
 
 ## Run Locally
 
-1. Start Neo4j (optional for current working-memory-only flows):
+1. Start infrastructure services:
 
 ```bash
-docker compose up -d neo4j
+docker compose up -d redis neo4j
 ```
 
-2. Start Redis (required):
+2. Verify services are healthy:
 
 ```bash
-docker run --rm -p 6379:6379 redis:7
+docker compose ps
 ```
 
 3. Start using the MCP server in Python:
