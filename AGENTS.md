@@ -151,10 +151,15 @@ src/engramcp/
 - **Linting**: black, flake8, isort, mypy, pyupgrade (pre-commit)
 - **Async**: pytest-asyncio with `asyncio_mode = "auto"`
 - **Testing**: testcontainers for Neo4j and Redis (session-scoped fixtures)
+- **Test env loading**: pytest loads root `.env` (via `python-dotenv` in `tests/conftest.py`) for explicit opt-in test flags/credentials
+- **Real-LLM evals**: optional opt-in E2E evals live in `tests/integration/test_e2e_real_llm_eval.py` and require explicit environment opt-in + provider credentials
+- **Real-LLM test execution policy**: always ask the user for explicit confirmation before running real-LLM evals (`ENGRAMCP_RUN_REAL_LLM_EVALS=1`), even when `.env` is present and fully configured
 - **Confidence**: NATO two-dimensional rating (letter = source reliability, number = credibility)
 - **Confidence on relations, not nodes**: same fact can have different ratings from different sources
 - **MCP errors**: tool responses may include `error_code` and `message` when rejected/errored
 - **LLM provider wiring**: consolidation no longer uses implicit noop fallback; configure explicit `llm_config` provider (or inject `llm_adapter` in code/tests)
+- **Extraction failure policy**: extraction output is schema-validated (`ExtractionResult`) and supports configurable retries for provider errors/invalid JSON/schema validation failures via `ConsolidationConfig` retry fields
+- **Graph retrieval matching**: claim lookup by content uses tokenized query matching (ANY token contained) rather than full-query substring matching
 - **DDD (Domain-Driven Design)**: each domain has bounded contexts with `models/`, `memory/`, `graph/`, `engine/`, `audit/` modules. Domain logic stays in its module; cross-cutting concerns use explicit interfaces.
 - **Domain package structure**: each domain follows `schemas.py` (Pydantic models), `store.py` (DB access), `__init__.py` (business logic + re-exports). External code imports from the domain package (e.g. `from engramcp.memory import MemoryFragment`).
 - **Import-cycle guard**: package re-exports in `graph/__init__.py` use lazy loading (`__getattr__`) to avoid eager cross-domain import cycles during bootstrap/tests.

@@ -8,15 +8,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 import time
 
 import pytest
 import redis as sync_redis
+from dotenv import load_dotenv
 from neo4j import AsyncGraphDatabase
 from redis.asyncio import Redis
 from testcontainers.core.container import DockerContainer
 
 logger = logging.getLogger(__name__)
+
+# Load repository-root .env for test opt-ins (existing env vars stay authoritative).
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env", override=False)
 
 
 # ---------------------------------------------------------------------------

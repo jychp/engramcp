@@ -77,6 +77,11 @@ Current configuration is code-based (dataclasses), not env-var based.
 - LLM settings: `src/engramcp/config.py` (`LLMConfig`)
   - Providers: `openai` (requires `api_key`) and `noop` (deterministic local/testing adapter)
 - Consolidation settings: `src/engramcp/config.py` (`ConsolidationConfig`)
+  - Includes extraction retry/failure policy:
+    - `extraction_max_retries`
+    - `extraction_retry_backoff_seconds`
+    - `retry_on_invalid_json`
+    - `retry_on_schema_validation_error`
 - Entity resolution settings: `src/engramcp/config.py` (`EntityResolutionConfig`)
 - Audit settings: `src/engramcp/config.py` (`AuditConfig`)
 
@@ -203,6 +208,19 @@ EngraMCP follows a layered architecture from MCP interface to storage/consolidat
 ```bash
 uv run pytest
 uv run pre-commit run --all-files
+```
+
+Optional real-LLM end-to-end evals (opt-in, requires API key and may incur cost):
+
+```bash
+cp .env.example .env
+# edit .env and set ENGRAMCP_RUN_REAL_LLM_EVALS=1 + OPENAI_API_KEY
+```
+
+```bash
+ENGRAMCP_RUN_REAL_LLM_EVALS=1 \
+OPENAI_API_KEY=... \
+uv run pytest tests/integration/test_e2e_real_llm_eval.py -q
 ```
 
 ## Releases and Changelog

@@ -30,6 +30,10 @@ class ConsolidationConfig:
     fragment_threshold: int = 10
     extraction_batch_size: int = 5
     pattern_min_occurrences: int = 3
+    extraction_max_retries: int = 0
+    extraction_retry_backoff_seconds: float = 0.0
+    retry_on_invalid_json: bool = True
+    retry_on_schema_validation_error: bool = True
 
 
 @dataclass(frozen=True)

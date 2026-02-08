@@ -132,6 +132,93 @@ class CodeFenceLLMAdapter:
         return f"```json\n{json.dumps(self._data)}\n```"
 
 
+class FailThenSucceedLLMAdapter:
+    """Mock that fails once with LLMError, then returns valid JSON."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        temperature: float = 0.2,
+        max_tokens: int = 4096,
+        timeout_seconds: float = 30.0,
+    ) -> str:
+        del prompt, temperature, max_tokens, timeout_seconds
+        self.calls += 1
+        if self.calls == 1:
+            raise LLMError("temporary upstream issue")
+        return json.dumps(
+            {
+                "entities": [{"name": "RetrySuccess", "type": "Agent"}],
+                "relations": [],
+                "claims": [],
+            }
+        )
+
+
+class InvalidJSONThenSucceedLLMAdapter:
+    """Mock that returns invalid JSON first, then valid JSON."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        temperature: float = 0.2,
+        max_tokens: int = 4096,
+        timeout_seconds: float = 30.0,
+    ) -> str:
+        del prompt, temperature, max_tokens, timeout_seconds
+        self.calls += 1
+        if self.calls == 1:
+            return '{"entities": [}'
+        return json.dumps(
+            {
+                "entities": [{"name": "Recovered", "type": "Agent"}],
+                "relations": [],
+                "claims": [],
+            }
+        )
+
+
+class InvalidSchemaThenSucceedLLMAdapter:
+    """Mock that returns schema-invalid payload first, then valid JSON."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        temperature: float = 0.2,
+        max_tokens: int = 4096,
+        timeout_seconds: float = 30.0,
+    ) -> str:
+        del prompt, temperature, max_tokens, timeout_seconds
+        self.calls += 1
+        if self.calls == 1:
+            return json.dumps(
+                {
+                    "entities": [{"name": "Broken"}],  # missing required `type`
+                    "relations": [],
+                    "claims": [],
+                }
+            )
+        return json.dumps(
+            {
+                "entities": [{"name": "SchemaRecovered", "type": "Agent"}],
+                "relations": [],
+                "claims": [],
+            }
+        )
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -448,6 +535,67 @@ class TestErrorHandling:
 
         assert result == ExtractionResult()
         assert len(llm.calls) == 0
+
+    async def test_retries_llm_error_and_recovers(self) -> None:
+        llm = FailThenSucceedLLMAdapter()
+        config = ConsolidationConfig(extraction_max_retries=1)
+        engine = ExtractionEngine(llm=llm, consolidation_config=config)
+
+        result = await engine.extract([_make_fragment()])
+
+        assert llm.calls == 2
+        assert result.errors == []
+        assert [entity.name for entity in result.entities] == ["RetrySuccess"]
+
+    async def test_retries_invalid_json_and_recovers(self) -> None:
+        llm = InvalidJSONThenSucceedLLMAdapter()
+        config = ConsolidationConfig(extraction_max_retries=1)
+        engine = ExtractionEngine(llm=llm, consolidation_config=config)
+
+        result = await engine.extract([_make_fragment()])
+
+        assert llm.calls == 2
+        assert result.errors == []
+        assert [entity.name for entity in result.entities] == ["Recovered"]
+
+    async def test_does_not_retry_invalid_json_when_disabled(self) -> None:
+        llm = InvalidJSONThenSucceedLLMAdapter()
+        config = ConsolidationConfig(
+            extraction_max_retries=1,
+            retry_on_invalid_json=False,
+        )
+        engine = ExtractionEngine(llm=llm, consolidation_config=config)
+
+        result = await engine.extract([_make_fragment()])
+
+        assert llm.calls == 1
+        assert len(result.errors) == 1
+        assert "Invalid JSON" in result.errors[0]
+
+    async def test_retries_schema_validation_error_and_recovers(self) -> None:
+        llm = InvalidSchemaThenSucceedLLMAdapter()
+        config = ConsolidationConfig(extraction_max_retries=1)
+        engine = ExtractionEngine(llm=llm, consolidation_config=config)
+
+        result = await engine.extract([_make_fragment()])
+
+        assert llm.calls == 2
+        assert result.errors == []
+        assert [entity.name for entity in result.entities] == ["SchemaRecovered"]
+
+    async def test_does_not_retry_schema_validation_when_disabled(self) -> None:
+        llm = InvalidSchemaThenSucceedLLMAdapter()
+        config = ConsolidationConfig(
+            extraction_max_retries=1,
+            retry_on_schema_validation_error=False,
+        )
+        engine = ExtractionEngine(llm=llm, consolidation_config=config)
+
+        result = await engine.extract([_make_fragment()])
+
+        assert llm.calls == 1
+        assert len(result.errors) == 1
+        assert "Schema validation failed" in result.errors[0]
 
 
 # ====================================================================

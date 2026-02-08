@@ -27,6 +27,7 @@ dev = [
     "pytest-cov>=4.0",
     "mypy>=1.0",
     "pre-commit>=4.2.0",
+    "python-dotenv>=1.0",
     "testcontainers>=4.0",
 ]
 
