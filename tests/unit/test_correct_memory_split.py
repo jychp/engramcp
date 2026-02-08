@@ -9,6 +9,9 @@ import pytest
 from fastmcp import Client
 
 from engramcp.config import AuditConfig
+from engramcp.graph import GraphStore
+from engramcp.models.nodes import Agent
+from engramcp.models.nodes import AgentType
 from engramcp.server import _get_wm
 from engramcp.server import configure
 from engramcp.server import mcp
@@ -23,6 +26,19 @@ async def split_client(redis_container, tmp_path: Path):
     audit_path = tmp_path / "split_audit.jsonl"
     await configure(
         redis_url=redis_container,
+        audit_config=AuditConfig(file_path=str(audit_path), enabled=True),
+    )
+    async with Client(mcp) as client:
+        yield client, audit_path
+
+
+@pytest.fixture
+async def graph_split_client(redis_container, neo4j_container, tmp_path: Path):
+    audit_path = tmp_path / "graph_split_audit.jsonl"
+    await configure(
+        redis_url=redis_container,
+        enable_consolidation=True,
+        neo4j_url=neo4j_container,
         audit_config=AuditConfig(file_path=str(audit_path), enabled=True),
     )
     async with Client(mcp) as client:
@@ -264,6 +280,7 @@ class TestCorrectMemoryActions:
         assert data["action"] == "merge_entities"
         assert data["details"]["merged_into"] == target_id
         assert data["details"]["merged_from"] == merge_with_id
+        assert data["details"]["storage"] == "working_memory"
 
         wm = _get_wm()
         merged = await wm.get(target_id)
@@ -280,6 +297,44 @@ class TestCorrectMemoryActions:
         assert event["payload"]["action"] == "merge_entities"
         assert event["payload"]["merged_into"] == target_id
         assert event["payload"]["merged_from"] == merge_with_id
+
+    async def test_merge_entities_uses_graph_executor_when_nodes_exist(
+        self,
+        graph_split_client,
+        graph_store: GraphStore,
+    ):
+        client, audit_path = graph_split_client
+        survivor = Agent(name="John Smith", type=AgentType.person, aliases=["J. Smith"])
+        absorbed = Agent(name="Jonathan Smith", type=AgentType.person)
+        survivor_id = await graph_store.create_node(survivor)
+        absorbed_id = await graph_store.create_node(absorbed)
+
+        result = await client.call_tool(
+            "correct_memory",
+            {
+                "target_id": survivor_id,
+                "action": "merge_entities",
+                "payload": {"merge_with": absorbed_id},
+            },
+        )
+        data = _parse(result)
+        assert data["status"] == "applied"
+        assert data["details"]["storage"] == "graph"
+        assert data["details"]["merged_into"] == survivor_id
+        assert data["details"]["merged_from"] == absorbed_id
+        assert isinstance(data["details"]["relations_transferred"], int)
+
+        merged = await graph_store.get_node(survivor_id)
+        removed = await graph_store.get_node(absorbed_id)
+        assert merged is not None
+        assert removed is None
+        assert "Jonathan Smith" in merged.aliases
+
+        lines = audit_path.read_text().strip().splitlines()
+        assert len(lines) == 1
+        event = json.loads(lines[0])
+        assert event["payload"]["action"] == "merge_entities"
+        assert event["payload"]["storage"] == "graph"
 
     async def test_merge_entities_rejects_self_merge(self, split_client):
         client, _ = split_client

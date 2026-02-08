@@ -109,9 +109,17 @@ async def configure(
     """
     global _wm, _graph_driver, _consolidation_pipeline, _retrieval_engine, _audit_logger
     if _wm is not None:
-        await _wm.close()
+        try:
+            await _wm.close()
+        except RuntimeError:
+            # Tests may reconfigure across event loops.
+            pass
     if _graph_driver is not None:
-        await _graph_driver.close()
+        try:
+            await _graph_driver.close()
+        except RuntimeError:
+            # Tests may reconfigure across event loops.
+            pass
         _graph_driver = None
         _consolidation_pipeline = None
 
@@ -342,6 +350,38 @@ def _best_confidence(*values: str | None) -> str | None:
     return min(candidates, key=_confidence_sort_key)
 
 
+async def _merge_entities_in_graph(
+    target_id: str,
+    merge_with_id: str,
+) -> dict | None:
+    """Merge entities in graph storage when Neo4j is configured.
+
+    Returns merge details when both nodes are present in graph, else ``None``.
+    """
+    if _graph_driver is None:
+        return None
+
+    graph_store = GraphStore(_graph_driver)
+    target_node = await graph_store.get_node(target_id)
+    merge_with_node = await graph_store.get_node(merge_with_id)
+    if target_node is None or merge_with_node is None:
+        return None
+
+    merge_executor = MergeExecutor(graph_store)
+    merge_result = await merge_executor.execute_merge(
+        survivor_id=target_id,
+        absorbed_id=merge_with_id,
+        merge_run_id=f"correct_memory_{int(time.time() * 1000)}",
+    )
+    return {
+        "merged_into": merge_result.survivor_id,
+        "merged_from": merge_result.absorbed_id,
+        "aliases_added": merge_result.aliases_added,
+        "relations_transferred": merge_result.relations_transferred,
+        "storage": "graph",
+    }
+
+
 @mcp.tool
 async def send_memory(
     content: str,
@@ -489,8 +529,9 @@ async def correct_memory(
             message=f"Invalid action: {validated.action}",
         )
 
-    # Check target exists
-    if not await wm.exists(validated.target_id):
+    if action_enum != CorrectionAction.merge_entities and not await wm.exists(
+        validated.target_id
+    ):
         return CorrectMemoryResult(
             target_id=validated.target_id,
             action=action_enum,
@@ -701,6 +742,26 @@ async def correct_memory(
                 message="merge_with must be different from target_id.",
             )
 
+        graph_details = await _merge_entities_in_graph(
+            validated.target_id,
+            merge_payload.merge_with,
+        )
+        if graph_details is not None:
+            await _log_correct_memory_event(
+                {
+                    "target_id": validated.target_id,
+                    "action": action_enum.value,
+                    "status": "applied",
+                    **graph_details,
+                }
+            )
+            return CorrectMemoryResult(
+                target_id=validated.target_id,
+                action=action_enum,
+                status="applied",
+                details=graph_details,
+            )
+
         target = await wm.get(validated.target_id)
         if target is None:
             return CorrectMemoryResult(
@@ -749,6 +810,7 @@ async def correct_memory(
             "merged_into": validated.target_id,
             "merged_from": merge_with.id,
             "confidence": merged.confidence,
+            "storage": "working_memory",
         }
         await _log_correct_memory_event(
             {
