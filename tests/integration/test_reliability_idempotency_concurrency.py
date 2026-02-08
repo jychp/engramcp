@@ -95,6 +95,31 @@ class _FailOncePromptEchoLLMAdapter(_PromptEchoLLMAdapter):
         )
 
 
+class _FailFirstBatchThenEchoLLMAdapter(_PromptEchoLLMAdapter):
+    """Fail first extraction batch, then succeed for subsequent batches."""
+
+    def __init__(self) -> None:
+        self._call_count = 0
+
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        temperature: float = 0.2,
+        max_tokens: int = 4096,
+        timeout_seconds: float = 30.0,
+    ) -> str:
+        self._call_count += 1
+        if self._call_count == 1:
+            raise LLMError("first batch failed")
+        return await super().complete(
+            prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout_seconds=timeout_seconds,
+        )
+
+
 @pytest.fixture
 async def idempotency_client(redis_container, neo4j_container):
     await configure(
@@ -131,6 +156,23 @@ async def llm_fail_once_client(redis_container, neo4j_container):
         neo4j_url=neo4j_container,
         llm_adapter=_FailOncePromptEchoLLMAdapter(),
         consolidation_config=ConsolidationConfig(fragment_threshold=1),
+        audit_config=AuditConfig(enabled=False),
+    )
+    yield
+    await shutdown()
+
+
+@pytest.fixture
+async def partial_batch_fail_client(redis_container, neo4j_container):
+    await configure(
+        redis_url=redis_container,
+        enable_consolidation=True,
+        neo4j_url=neo4j_container,
+        llm_adapter=_FailFirstBatchThenEchoLLMAdapter(),
+        consolidation_config=ConsolidationConfig(
+            fragment_threshold=2,
+            extraction_batch_size=1,
+        ),
         audit_config=AuditConfig(enabled=False),
     )
     yield
@@ -314,3 +356,37 @@ class TestReliabilityIdempotencyConcurrency:
             direction="outgoing",
         )
         assert len(sourced_from) == 1
+
+    async def test_partial_extraction_error_keeps_all_fragments_retryable(
+        self,
+        partial_batch_fail_client,
+        graph_store: GraphStore,
+    ):
+        wm = _get_wm()
+        async with Client(mcp) as client:
+            await client.call_tool("send_memory", {"content": "Partial batch fact one"})
+            await client.call_tool("send_memory", {"content": "Partial batch fact two"})
+
+            async def _wm_still_has_failed_batch() -> bool:
+                return await wm.count() == 2
+
+            assert await _wait_until(_wm_still_has_failed_batch)
+
+            await client.call_tool("send_memory", {"content": "Partial batch fact three"})
+
+        async def _is_empty() -> bool:
+            return await wm.count() == 0
+
+        assert await _wait_until(_is_empty)
+
+        claims = await graph_store.find_claim_nodes()
+        contents = [
+            getattr(node, "content", "")
+            for node in claims
+            if str(getattr(node, "content", "")).startswith("Partial batch fact")
+        ]
+        assert sorted(contents) == [
+            "Partial batch fact one",
+            "Partial batch fact three",
+            "Partial batch fact two",
+        ]
