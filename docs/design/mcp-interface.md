@@ -90,7 +90,8 @@ FastMCP v2 serializes Pydantic models automatically via `pydantic_core.to_jsonab
 - Validates input with `CorrectMemoryInput`
 - Validates `action` against `CorrectionAction` enum
 - Returns `status: "not_found"` if `target_id` doesn't exist
-- Returns `status: "applied"` on success (mock — real cascading logic when the Confidence Engine layer is implemented)
+- Implements `split_entity`: validates `SplitEntityPayload`, creates split child memories, deletes original target, and writes a `CORRECT_MEMORY` audit event
+- Returns `status: "applied"` on success for other actions (stub for future graph/cascade behavior)
 
 ### Error response contract
 

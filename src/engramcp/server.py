@@ -12,6 +12,8 @@ from neo4j import AsyncGraphDatabase
 from pydantic import ValidationError
 from redis.asyncio import Redis  # type: ignore[import-untyped]
 
+from engramcp.audit import AuditEvent
+from engramcp.audit import AuditEventType
 from engramcp.audit import AuditLogger
 from engramcp.config import AuditConfig
 from engramcp.config import ConsolidationConfig
@@ -37,6 +39,7 @@ from engramcp.models.schemas import GetMemoryResult
 from engramcp.models.schemas import MetaInfo
 from engramcp.models.schemas import SendMemoryInput
 from engramcp.models.schemas import SendMemoryResult
+from engramcp.models.schemas import SplitEntityPayload
 
 mcp = FastMCP("EngraMCP")
 
@@ -48,6 +51,7 @@ _wm: WorkingMemory | None = None
 _graph_driver: AsyncDriver | None = None
 _consolidation_pipeline: ConsolidationPipeline | None = None
 _retrieval_engine: RetrievalEngine | None = None
+_audit_logger: AuditLogger | None = None
 
 
 class _NoopLLMAdapter(LLMAdapter):
@@ -97,13 +101,15 @@ async def configure(
 
     Must be called before the MCP tools can function.
     """
-    global _wm, _graph_driver, _consolidation_pipeline, _retrieval_engine
+    global _wm, _graph_driver, _consolidation_pipeline, _retrieval_engine, _audit_logger
     if _wm is not None:
         await _wm.close()
     if _graph_driver is not None:
         await _graph_driver.close()
         _graph_driver = None
         _consolidation_pipeline = None
+
+    _audit_logger = AuditLogger(audit_config or AuditConfig())
 
     consolidation_callback = on_flush
     threshold = flush_threshold
@@ -122,13 +128,12 @@ async def configure(
         )
         resolver = EntityResolver(config=entity_resolution_config)
         merger = MergeExecutor(graph_store)
-        audit_logger = AuditLogger(audit_config or AuditConfig())
         _consolidation_pipeline = ConsolidationPipeline(
             extraction_engine=extraction_engine,
             entity_resolver=resolver,
             merge_executor=merger,
             graph_store=graph_store,
-            audit_logger=audit_logger,
+            audit_logger=_audit_logger,
             config=cfg,
         )
         consolidation_callback = _run_consolidation
@@ -155,7 +160,7 @@ async def configure(
 
 async def shutdown() -> None:
     """Close backend clients and release server resources."""
-    global _wm, _graph_driver, _consolidation_pipeline, _retrieval_engine
+    global _wm, _graph_driver, _consolidation_pipeline, _retrieval_engine, _audit_logger
     if _wm is not None:
         await _wm.close()
         _wm = None
@@ -164,6 +169,7 @@ async def shutdown() -> None:
         _graph_driver = None
     _consolidation_pipeline = None
     _retrieval_engine = None
+    _audit_logger = None
 
 
 async def _reset_working_memory() -> None:
@@ -262,6 +268,15 @@ def _correct_rejected(
         error_code=error_code,
         message=message,
         details={},
+    )
+
+
+async def _log_correct_memory_event(payload: dict) -> None:
+    """Write a CORRECT_MEMORY audit event when audit logging is configured."""
+    if _audit_logger is None:
+        return
+    await _audit_logger.log(
+        AuditEvent(event_type=AuditEventType.CORRECT_MEMORY, payload=payload)
     )
 
 
@@ -418,6 +433,67 @@ async def correct_memory(
             target_id=validated.target_id,
             action=action_enum,
             status="not_found",
+        )
+
+    if action_enum == CorrectionAction.split_entity:
+        try:
+            split_payload = SplitEntityPayload.model_validate(validated.payload or {})
+        except ValidationError as exc:
+            return _correct_rejected(
+                validated.target_id,
+                action=action_enum,
+                error_code="validation_error",
+                message=_validation_message(exc),
+            )
+
+        target = await wm.get(validated.target_id)
+        if target is None:
+            return CorrectMemoryResult(
+                target_id=validated.target_id,
+                action=action_enum,
+                status="not_found",
+            )
+
+        source_input: dict | None = None
+        if target.sources:
+            source = target.sources[0]
+            source_input = {
+                "type": source.get("type"),
+                "ref": source.get("ref"),
+                "citation": source.get("citation"),
+            }
+        confidence_hint = target.confidence[0] if target.confidence else None
+
+        created_memory_ids: list[str] = []
+        for split_item in split_payload.split_into:
+            fragment = create_memory_fragment(
+                content=split_item,
+                source=source_input,
+                confidence_hint=confidence_hint,
+                agent_id=target.agent_id,
+            )
+            await wm.store(fragment)
+            created_memory_ids.append(fragment.id)
+
+        await wm.delete(validated.target_id)
+        split_details = {
+            "split_into": split_payload.split_into,
+            "created_memory_ids": created_memory_ids,
+        }
+        await _log_correct_memory_event(
+            {
+                "target_id": validated.target_id,
+                "action": action_enum.value,
+                "status": "applied",
+                "created_memory_ids": created_memory_ids,
+                "split_into": split_payload.split_into,
+            }
+        )
+        return CorrectMemoryResult(
+            target_id=validated.target_id,
+            action=action_enum,
+            status="applied",
+            details=split_details,
         )
 
     # Mock: apply correction (real logic in later sprints)

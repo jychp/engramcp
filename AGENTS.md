@@ -78,7 +78,7 @@ Agent → correct_memory → [Graph mutations + cascade]
 
 | Layer | Module | Description |
 |---|---|---|
-| 7 | `server.py` | MCP interface + consolidation/retrieval assembly/wiring (send_memory, get_memory, correct_memory) |
+| 7 | `server.py` | MCP interface + consolidation/retrieval assembly/wiring + split correction audit flow (send_memory, get_memory, correct_memory) |
 | 6 | `engine/retrieval.py` | WM-first retrieval, fallback traversal stub, scoring, synthesis, demand-hook emission |
 | 5 | `engine/concepts.py`, `engine/demand.py` | Concept emergence from retrieval demand |
 | 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline, LLM extraction, contradiction detection, abstraction |
