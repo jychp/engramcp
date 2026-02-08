@@ -445,6 +445,13 @@ async def correct_memory(
                 error_code="validation_error",
                 message=_validation_message(exc),
             )
+        if not split_payload.split_into:
+            return _correct_rejected(
+                validated.target_id,
+                action=action_enum,
+                error_code="validation_error",
+                message="split_into must contain at least one item.",
+            )
 
         target = await wm.get(validated.target_id)
         if target is None:

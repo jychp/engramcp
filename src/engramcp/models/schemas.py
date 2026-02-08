@@ -139,7 +139,10 @@ class MergeEntitiesPayload(BaseModel):
 class SplitEntityPayload(BaseModel):
     """Payload for the ``split_entity`` correction action."""
 
-    split_into: list[str] = Field(description="Labels for the resulting entities.")
+    split_into: list[str] = Field(
+        min_length=1,
+        description="Labels for the resulting entities (at least one item).",
+    )
 
 
 class ReclassifyPayload(BaseModel):

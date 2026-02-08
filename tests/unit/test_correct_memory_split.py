@@ -82,3 +82,26 @@ class TestCorrectMemorySplitFlow:
 
         assert data["status"] == "rejected"
         assert data["error_code"] == "validation_error"
+
+    async def test_split_entity_with_empty_list_keeps_target_memory(self, split_client):
+        client, audit_path = split_client
+        send_result = await client.call_tool("send_memory", {"content": "Entity"})
+        target_id = _parse(send_result)["memory_id"]
+
+        result = await client.call_tool(
+            "correct_memory",
+            {
+                "target_id": target_id,
+                "action": "split_entity",
+                "payload": {"split_into": []},
+            },
+        )
+        data = _parse(result)
+
+        assert data["status"] == "rejected"
+        assert data["error_code"] == "validation_error"
+
+        wm = _get_wm()
+        assert await wm.exists(target_id)
+        if audit_path.exists():
+            assert audit_path.read_text().strip() == ""
