@@ -8,6 +8,8 @@ contain complex logic itself.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from dataclasses import dataclass
 from dataclasses import field
@@ -38,6 +40,7 @@ from engramcp.models.nodes import Concept
 from engramcp.models.nodes import Decision
 from engramcp.models.nodes import Event
 from engramcp.models.nodes import Fact
+from engramcp.models.nodes import MemoryBase
 from engramcp.models.nodes import MemoryNode
 from engramcp.models.nodes import Observation
 from engramcp.models.nodes import Outcome
@@ -176,6 +179,31 @@ def _claims_contradict(content_a: str, content_b: str) -> bool:
     base_a, neg_a = _claim_base_and_polarity(content_a)
     base_b, neg_b = _claim_base_and_polarity(content_b)
     return bool(base_a) and base_a == base_b and neg_a != neg_b
+
+
+def _stable_claim_id(claim: ExtractedClaim) -> str:
+    """Build a deterministic claim-node ID for idempotent consolidation."""
+    signature = {
+        "claim_type": claim.claim_type,
+        "content": claim.content,
+        "properties": claim.properties,
+        "temporal_info": (
+            claim.temporal_info.model_dump(mode="json")
+            if claim.temporal_info is not None
+            else None
+        ),
+        "involved_entities": sorted(claim.involved_entities),
+        "source_fragment_ids": sorted(claim.source_fragment_ids),
+    }
+    digest = hashlib.sha256(
+        json.dumps(signature, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return f"claim_{digest}"
+
+
+def _stable_source_id(fragment_id: str) -> str:
+    """Build a deterministic source-node ID for one fragment."""
+    return f"source_{fragment_id}"
 
 
 # ---------------------------------------------------------------------------
@@ -382,8 +410,14 @@ class ConsolidationPipeline:
                 )
                 kwargs["occurred_at"] = occurred_at
 
+            stable_claim_id = _stable_claim_id(claim)
+            existing_claim = await self._graph.get_node(stable_claim_id)
+            if isinstance(existing_claim, MemoryBase):
+                claim_node_ids.append((stable_claim_id, claim))
+                continue
+
             try:
-                node = model_cls(**kwargs)
+                node = model_cls(id=stable_claim_id, **kwargs)
             except Exception as exc:
                 result.errors.append(f"Failed to create {claim.claim_type} node: {exc}")
                 continue
@@ -409,8 +443,8 @@ class ConsolidationPipeline:
                 entity_node_id = name_to_node_id.get(entity_name)
                 if entity_node_id:
                     concerns = Concerns()
-                    await self._graph.create_relationship(
-                        node_id, entity_node_id, concerns
+                    await self._create_relationship_once(
+                        node_id, entity_node_id, "CONCERNS", concerns
                     )
 
     # ------------------------------------------------------------------
@@ -439,43 +473,46 @@ class ConsolidationPipeline:
             if not frag:
                 continue
 
+            source_node_id = _stable_source_id(frag_id)
             source = Source(
+                id=source_node_id,
                 type=frag.type or "unknown",
                 agent_id=frag.agent_id,
                 reliability=Reliability.C,  # default; could be refined
             )
-            source_node_id = await self._graph.create_node(source)
-
-            await self._audit.log(
-                AuditEvent(
-                    event_type=AuditEventType.NODE_CREATED,
-                    payload={
-                        "run_id": result.run_id,
-                        "node_id": source_node_id,
-                        "node_type": "Source",
-                        "fragment_id": frag_id,
-                    },
+            existing_source = await self._graph.get_node(source_node_id)
+            if not isinstance(existing_source, MemoryBase):
+                source_node_id = await self._graph.create_node(source)
+                await self._audit.log(
+                    AuditEvent(
+                        event_type=AuditEventType.NODE_CREATED,
+                        payload={
+                            "run_id": result.run_id,
+                            "node_id": source_node_id,
+                            "node_type": "Source",
+                            "fragment_id": frag_id,
+                        },
+                    )
                 )
-            )
 
             # SOURCED_FROM for each claim from this fragment
             for claim_id in claim_ids:
                 sourced_from = SourcedFrom(credibility=Credibility.SIX)
-                await self._graph.create_relationship(
-                    claim_id, source_node_id, sourced_from
+                created = await self._create_relationship_once(
+                    claim_id, source_node_id, "SOURCED_FROM", sourced_from
                 )
-
-                await self._audit.log(
-                    AuditEvent(
-                        event_type=AuditEventType.RELATION_CREATED,
-                        payload={
-                            "run_id": result.run_id,
-                            "rel_type": "SOURCED_FROM",
-                            "from_id": claim_id,
-                            "to_id": source_node_id,
-                        },
+                if created:
+                    await self._audit.log(
+                        AuditEvent(
+                            event_type=AuditEventType.RELATION_CREATED,
+                            payload={
+                                "run_id": result.run_id,
+                                "rel_type": "SOURCED_FROM",
+                                "from_id": claim_id,
+                                "to_id": source_node_id,
+                            },
+                        )
                     )
-                )
 
     # ------------------------------------------------------------------
     # Relation creation
@@ -554,22 +591,25 @@ class ConsolidationPipeline:
                         detection_run_id=result.run_id,
                         resolution_status=ResolutionStatus.unresolved,
                     )
-                    await self._graph.create_relationship(
-                        new_claim_id, existing_id, contradiction
+                    created = await self._create_relationship_once(
+                        new_claim_id,
+                        existing_id,
+                        "CONTRADICTS",
+                        contradiction,
                     )
-                    result.contradictions_detected += 1
-
-                    await self._audit.log(
-                        AuditEvent(
-                            event_type=AuditEventType.RELATION_CREATED,
-                            payload={
-                                "run_id": result.run_id,
-                                "rel_type": "CONTRADICTS",
-                                "from_id": new_claim_id,
-                                "to_id": existing_id,
-                            },
+                    if created:
+                        result.contradictions_detected += 1
+                        await self._audit.log(
+                            AuditEvent(
+                                event_type=AuditEventType.RELATION_CREATED,
+                                payload={
+                                    "run_id": result.run_id,
+                                    "rel_type": "CONTRADICTS",
+                                    "from_id": new_claim_id,
+                                    "to_id": existing_id,
+                                },
+                            )
                         )
-                    )
 
     # ------------------------------------------------------------------
     # Abstraction
@@ -698,3 +738,19 @@ class ConsolidationPipeline:
             )
             await self._graph.create_relationship(rule_id, concept_id, Generalizes())
             await self._graph.create_relationship(concept_id, rule_id, InstanceOf())
+
+    async def _create_relationship_once(
+        self,
+        from_id: str,
+        to_id: str,
+        rel_type: str,
+        rel_model: RelationshipBase,
+    ) -> bool:
+        """Create relationship only when an identical edge does not already exist."""
+        existing = await self._graph.get_relationships(
+            from_id, rel_type=rel_type, direction="outgoing"
+        )
+        if any(rel.get("to_id") == to_id for rel in existing):
+            return False
+        await self._graph.create_relationship(from_id, to_id, rel_model)
+        return True
