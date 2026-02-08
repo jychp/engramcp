@@ -21,10 +21,12 @@ from engramcp.server import _get_wm
 from engramcp.server import configure
 from engramcp.server import mcp
 from engramcp.server import shutdown
+from tests.scenarios.helpers.metrics import emit_scenario_metric
 from tests.scenarios.helpers.reporting import build_failure_context
 
 _RUN_REAL_EVALS = os.getenv("ENGRAMCP_RUN_REAL_LLM_EVALS") == "1"
 _OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+_EVAL_MODEL = os.getenv("ENGRAMCP_EVAL_OPENAI_MODEL", "gpt-4o-mini")
 
 pytestmark = [
     pytest.mark.tier1,
@@ -60,7 +62,7 @@ async def _setup_server(redis_container, neo4j_container):
         neo4j_url=neo4j_container,
         llm_config=LLMConfig(
             provider="openai",
-            model=os.getenv("ENGRAMCP_EVAL_OPENAI_MODEL", "gpt-4o-mini"),
+            model=_EVAL_MODEL,
             api_key=_OPENAI_API_KEY,
             temperature=0.0,
             timeout_seconds=60.0,
@@ -107,6 +109,16 @@ class TestRealLLME2EEvals:
             query="Eiffel Tower",
             response=data,
         )
+        emit_scenario_metric(
+            scenario="tier1_real_llm_eiffel_tower",
+            tier="tier1",
+            metric_class="real_llm_run_meta",
+            values={
+                "model_used": _EVAL_MODEL,
+                "graph_hits": data["meta"]["graph_hits"],
+                "returned_memories": len(data["memories"]),
+            },
+        )
         assert data["meta"]["working_memory_hits"] == 0, ctx
         assert data["meta"]["graph_hits"] >= 1, ctx
         assert any("Eiffel Tower" in memory["content"] for memory in data["memories"]), ctx
@@ -136,6 +148,17 @@ class TestRealLLME2EEvals:
             scenario="tier1_real_llm_meeting_conflict",
             query="2025",
             response=data,
+        )
+        emit_scenario_metric(
+            scenario="tier1_real_llm_meeting_conflict",
+            tier="tier1",
+            metric_class="real_llm_run_meta",
+            values={
+                "model_used": _EVAL_MODEL,
+                "graph_hits": data["meta"]["graph_hits"],
+                "returned_memories": len(data["memories"]),
+                "contradictions": len(data["contradictions"]),
+            },
         )
         assert data["meta"]["graph_hits"] >= 1, ctx
         assert len(data["memories"]) >= 1, ctx

@@ -3,6 +3,18 @@ name: 'Checks'
 on:
   workflow_call:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      run_real_llm_evals:
+        description: "Run opt-in real-LLM scenario evals"
+        required: false
+        default: false
+        type: boolean
+      eval_model:
+        description: "Model override for real-LLM eval job"
+        required: false
+        default: "gpt-4o-mini"
+        type: string
 
 permissions:
   contents: read
@@ -64,3 +76,45 @@ jobs:
           path: |
             reports/scenario-metrics.jsonl
             reports/eval-calibration.json
+
+  python-real-llm-scenarios:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.run_real_llm_evals == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: real-llm-scenarios-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    environment:
+      name: real-llm-evals
+    env:
+      ENGRAMCP_RUN_REAL_LLM_EVALS: "1"
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ENGRAMCP_EVAL_OPENAI_MODEL: ${{ inputs.eval_model || 'gpt-4o-mini' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version-file: ".python-version"
+      - name: Install uv
+        uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # v7.2.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Install the project
+        run: uv sync --frozen --all-extras --dev
+      - name: Scenario evals (real_llm opt-in)
+        run: make test-real-llm-evals
+      - name: Upload real-LLM scenario JUnit report
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: pytest-scenarios-real-llm-report
+          path: reports/pytest-scenarios-real-llm.xml
+      - name: Upload real-LLM scenario metrics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: scenario-real-llm-metrics
+          path: reports/scenario-metrics-real-llm.jsonl

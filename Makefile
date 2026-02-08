@@ -1,4 +1,4 @@
-.PHONY: test test-scenarios test-scenarios-tier2 test-real-llm-evals calibrate-eval-thresholds
+.PHONY: test test-scenarios test-scenarios-tier2 test-real-llm-evals test-scenarios-real-llm calibrate-eval-thresholds
 
 test:
 	UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/.uv-cache} uv run pytest -q
@@ -26,4 +26,6 @@ test-real-llm-evals:
 		exit 1; \
 	fi
 	@mkdir -p reports
-	UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/.uv-cache} uv run pytest tests/scenarios/test_e2e_real_llm_eval.py -ra --tb=short --durations=10 --junitxml=reports/pytest-scenarios-real-llm.xml
+	ENGRAMCP_SCENARIO_METRICS_PATH=reports/scenario-metrics-real-llm.jsonl UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/.uv-cache} uv run pytest tests/scenarios/test_e2e_real_llm_eval.py -ra --tb=short --durations=10 --junitxml=reports/pytest-scenarios-real-llm.xml
+
+test-scenarios-real-llm: test-real-llm-evals

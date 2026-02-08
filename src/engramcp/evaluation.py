@@ -13,6 +13,10 @@ class ScenarioThresholds:
     min_memories: int = 1
     min_contradictions: int = 1
     min_unique_sources_for_corroboration: int = 2
+    min_independent_sources_for_confidence_upgrade: int = 2
+    expected_dependent_independent_sources: int = 1
+    expected_corroborated_credibility: str = "2"
+    expected_dependent_credibility: str = "3"
     min_rule_entries_for_derivation: int = 1
     expected_rule_derivation_depth: int = 3
 

@@ -213,6 +213,7 @@ uv run pytest
 uv run pre-commit run --all-files
 make test-scenarios
 make test-scenarios-tier2
+make test-scenarios-real-llm
 make calibrate-eval-thresholds
 ```
 
@@ -234,6 +235,16 @@ Execution policy:
 ```bash
 make test-real-llm-evals
 ```
+
+CI opt-in real-LLM job:
+- `checks.yml` includes a dedicated provider-backed scenario job.
+- It runs only on manual dispatch (`workflow_dispatch`) from `main` with `run_real_llm_evals=true`.
+- It is bound to GitHub Environment `real-llm-evals` (configure `OPENAI_API_KEY` there, with required reviewers if desired).
+- The job uses concurrency control (one in-flight run per branch/workflow) to avoid duplicate provider-cost runs.
+
+Cost guardrail:
+- Real-LLM scenario runs may incur provider charges; keep opt-in scope small and use `ENGRAMCP_EVAL_OPENAI_MODEL=gpt-4o-mini` unless higher capability is required.
+- Real-LLM run metadata is emitted to `reports/scenario-metrics-real-llm.jsonl` (including `model_used`) for auditability.
 
 Why tokenized graph retrieval matching:
 - Retrieval now matches claim content on query tokens (not full-query substring only), reducing false negatives for natural-language queries like `meeting date` against stored claim text.

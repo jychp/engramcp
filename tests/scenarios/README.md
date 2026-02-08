@@ -16,8 +16,10 @@ Real-LLM evals:
 - `tests/scenarios/test_e2e_real_llm_eval.py`
 - Opt-in only via `ENGRAMCP_RUN_REAL_LLM_EVALS=1` and provider credentials
 - Requires explicit user confirmation before execution in collaborative workflows
+- Emits run metadata metrics (including `model_used`) to `reports/scenario-metrics-real-llm.jsonl`
 
 CI-safe scenario run:
 - `make test-scenarios` (excludes `real_llm`, emits `reports/pytest-scenarios.xml`)
 - `make test-scenarios-tier2` (runs only Tier 2 non-`real_llm`, emits `reports/pytest-scenarios-tier2.xml`)
 - `make calibrate-eval-thresholds` (runs CI-safe scenarios, emits `reports/scenario-metrics.jsonl`, and writes calibration report to `reports/eval-calibration.json`)
+- `make test-scenarios-real-llm` (alias of `make test-real-llm-evals` for explicit provider-backed runs)

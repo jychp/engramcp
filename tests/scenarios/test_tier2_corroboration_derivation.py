@@ -15,6 +15,9 @@ from engramcp.config import AuditConfig
 from engramcp.config import scenario_eval_consolidation_config
 from engramcp.evaluation import THRESHOLDS
 from engramcp.engine import LLMAdapter
+from engramcp.models.confidence import Credibility
+from engramcp.models.relations import Cites
+from engramcp.models.relations import SourcedFrom
 from engramcp.server import _get_wm
 from engramcp.server import configure
 from engramcp.server import mcp
@@ -191,6 +194,100 @@ class TestTier2CorroborationDerivation:
             },
         )
         assert len(unique_source_ids) >= THRESHOLDS.min_unique_sources_for_corroboration, ctx
+
+    async def test_confidence_progression_reflects_source_independence(
+        self,
+        confidence_engine,
+        graph_store,
+    ):
+        fixture = _load_fixture(_CORROBORATION_FIXTURE)
+        scenario_name = f"{fixture['scenario_name']}_confidence_progression"
+        fragments: list[str] = fixture["fragments"]
+        query: str = fixture["query"]
+
+        async with Client(mcp) as client:
+            for fragment in fragments:
+                await client.call_tool("send_memory", {"content": fragment})
+
+            wm = _get_wm()
+
+            async def _wm_empty() -> bool:
+                return await wm.count() == 0
+
+            assert await _wait_until(_wm_empty)
+            result = await client.call_tool("get_memory", {"query": query})
+            data = _parse(result)
+
+        ctx = build_failure_context(
+            scenario=scenario_name,
+            query=query,
+            response=data,
+            fragments=fragments,
+        )
+
+        corroborated = [
+            memory
+            for memory in data["memories"]
+            if memory["content"] == "Flight AC123 departed JFK at 09:00."
+            and memory.get("sources")
+        ]
+        assert len(corroborated) >= 2, ctx
+
+        first = corroborated[0]
+        second = next(
+            (memory for memory in corroborated[1:] if memory["id"] != first["id"]),
+            None,
+        )
+        assert second is not None, ctx
+
+        fact_id = first["id"]
+        first_source_id = first["sources"][0]["id"]
+        second_source_id = second["sources"][0]["id"]
+        assert first_source_id and second_source_id, ctx
+        assert first_source_id != second_source_id, ctx
+
+        await graph_store.create_relationship(
+            fact_id,
+            second_source_id,
+            SourcedFrom(credibility=Credibility.SIX),
+        )
+
+        independent_count, _ = await confidence_engine.check_corroboration(fact_id)
+        independent_assessment = await confidence_engine.assess_credibility(fact_id)
+
+        await graph_store.create_relationship(second_source_id, first_source_id, Cites())
+
+        dependent_count, _ = await confidence_engine.check_corroboration(fact_id)
+        dependent_assessment = await confidence_engine.assess_credibility(fact_id)
+
+        emit_scenario_metric(
+            scenario=scenario_name,
+            tier="tier2",
+            metric_class="confidence_progression",
+            values={
+                "independent_source_count": independent_count,
+                "independent_credibility": independent_assessment.credibility.value,
+                "dependent_source_count": dependent_count,
+                "dependent_credibility": dependent_assessment.credibility.value,
+            },
+        )
+
+        assert (
+            independent_count
+            >= THRESHOLDS.min_independent_sources_for_confidence_upgrade
+        ), ctx
+        assert (
+            independent_assessment.credibility.value
+            == THRESHOLDS.expected_corroborated_credibility
+        ), ctx
+        assert dependent_count == THRESHOLDS.expected_dependent_independent_sources, ctx
+        assert (
+            dependent_assessment.credibility.value
+            == THRESHOLDS.expected_dependent_credibility
+        ), ctx
+        assert int(independent_assessment.credibility.value) < int(
+            dependent_assessment.credibility.value
+        ), ctx
 
     async def test_curated_derivation_is_traceable_in_get_memory_output(self):
         fixture = _load_fixture(_DERIVATION_FIXTURE)
