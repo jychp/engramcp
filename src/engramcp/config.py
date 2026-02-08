@@ -36,6 +36,14 @@ class ConsolidationConfig:
     retry_on_schema_validation_error: bool = True
 
 
+def scenario_eval_consolidation_config() -> ConsolidationConfig:
+    """Scenario-eval profile for deterministic derivation coverage."""
+    return ConsolidationConfig(
+        fragment_threshold=4,
+        pattern_min_occurrences=2,
+    )
+
+
 @dataclass(frozen=True)
 class EntityResolutionConfig:
     """Thresholds for the three-level entity resolution strategy."""

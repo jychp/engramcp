@@ -1,0 +1,10 @@
+{
+  "scenario_name": "tier2_curated_corroboration_sources",
+  "fragments": [
+    "Flight log reports AC123 departed JFK at 09:00.",
+    "ATC transcript confirms AC123 departed JFK at 09:00.",
+    "Irrelevant note: AC999 was delayed.",
+    "Background note: weather was clear over JFK."
+  ],
+  "query": "ac123 departed jfk 09:00"
+}

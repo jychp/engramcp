@@ -97,6 +97,30 @@ Run **all scopes in parallel** using subagents. Each scope must produce a **top 
 - Search operations with O(n) fragment fetches that could use pipelines
 - Do NOT flag theoretical performance concerns
 
+### 10. Tests quality & determinism
+
+- Coverage gaps on critical paths (MCP tools, correction flows, consolidation retries, retrieval shaping)
+- Flaky patterns (timing-only waits, unbounded polling, non-deterministic fixtures)
+- Marker hygiene (`unit`/`integration`/`scenario` + `tier1/2/3` + `real_llm`) and selection correctness
+- Real-LLM test gating (strict opt-in, credential checks, accidental CI execution risk)
+- Assertions quality: do tests validate behavior/contracts or only status/smoke
+
+### 11. CI/CD & supply-chain
+
+- Workflow correctness and drift (`checks.yml`, `ci.yml`, `security.yml`, scorecard)
+- Artifact/report publication for debuggability (pytest XML, scenario metrics/calibration outputs)
+- Dependency/update posture (`uv.lock`, Dependabot policy, pinned actions, integrity)
+- Release-path safety (PyPI/GHCR workflows, branch protections assumptions, secret usage patterns)
+- Security scanning gaps (SAST/dependency/license checks) and misconfigured triggers
+
+### 12. Repo tooling & runtime ops
+
+- Makefile/command targets accuracy vs documented workflow
+- `pyproject.toml` consistency (pytest markers, tooling config, dependency groups)
+- Script reliability (`scripts/*.py`) including exit codes, path assumptions, and error messages
+- Local/dev ergonomics that can cause silent misuse (cache paths, env loading, report paths)
+- Operational footguns in defaults (timeouts, retries, thresholds) that are not production-safe
+
 ## Output format
 
 Produce a single consolidated report with this structure:
@@ -124,6 +148,7 @@ Produce a single consolidated report with this structure:
 ## Rules
 
 - **Max 5 findings per scope.** If you find more, keep only the top 5 by impact.
+- Target repository-wide coverage: include `src/`, `tests/`, `.github/`, `docs/`, `scripts/`, `Makefile`, and `pyproject.toml`.
 - Every finding MUST have a **specific `file:line` reference** — no vague descriptions. For scopes 7-8 (technical/scientific, documentation), reference the relevant design doc or code location.
 - Every finding MUST include a **concrete fix** (one-liner diff, pattern to apply, or approach).
 - Do NOT flag things that are already correct (e.g., Pydantic validation is fine, don't mention it).

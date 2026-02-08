@@ -45,7 +45,7 @@ When exploring external projects for patterns or reference, clone them into `ext
 | [Extraction](docs/design/extraction.md) | Layer 4 design: LLMAdapter protocol, ExtractionEngine, prompt builder, extraction schemas |
 | [Entity Resolution](docs/design/entity-resolution.md) | Layer 4 design: three-level resolver, normalizer, scorer, merge executor, anti-patterns |
 | [Consolidation Pipeline](docs/design/consolidation-pipeline.md) | Layer 4: async trigger wiring, extraction integration, idempotent claim/source consolidation, contradiction detection, and abstraction stages |
-| [Retrieval Engine](docs/design/retrieval.md) | Layer 6 design: WM-first retrieval service, scoring protocol, bounded graph-context fallback (`max_depth`), demand tracking hooks |
+| [Retrieval Engine](docs/design/retrieval.md) | Layer 6 design: WM-first retrieval service, scoring protocol, bounded graph-context fallback (`max_depth`) across claim + derived nodes, demand tracking hooks |
 | [Evaluation Scenarios](docs/design/evaluation-scenarios.md) | Tiered eval strategy (Tier 1/2/3), scenario layout under `tests/scenarios/`, markers, and CI/reporting conventions |
 
 ### Draft References (Archive / Migration Input)
@@ -86,7 +86,7 @@ Agent → correct_memory → [WM-first contest/annotate + graph-aware split/merg
 | Layer | Module | Description |
 |---|---|---|
 | 7 | `server.py` | MCP interface + consolidation/retrieval assembly/wiring + correction audit flows (WM-first `contest`/`annotate`; graph-aware `split_entity`/`merge_entities`/derived-lifecycle-aware `reclassify` with WM fallback where applicable; consolidation requires explicit LLM provider wiring via `LLMConfig`/adapter) |
-| 6 | `engine/retrieval.py` | WM-first retrieval, bounded graph-context fallback (`max_depth`), scoring, synthesis, demand-hook emission |
+| 6 | `engine/retrieval.py` | WM-first retrieval, bounded graph-context fallback (`max_depth`) over claim + derived nodes, scoring, synthesis, demand-hook emission |
 | 5 | `engine/concepts.py`, `engine/demand.py` | Concept emergence from retrieval demand |
 | 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline, LLM extraction, idempotent claim/source writes for repeated runs, contradiction detection, abstraction |
 | 3 | `engine/confidence.py` | NATO rating, propagation, corroboration |
@@ -114,6 +114,7 @@ src/engramcp/
 ├── __init__.py
 ├── server.py               # FastMCP server, 3 tools
 ├── config.py               # LLM, consolidation, entity resolution, audit config
+├── evaluation.py           # Shared scenario-eval pass/fail thresholds
 ├── models/                 # Shared data models
 │   ├── __init__.py         # Agent fingerprinting + domain logic + re-exports
 │   ├── schemas.py          # Pydantic input/output schemas for MCP tools
@@ -140,7 +141,7 @@ src/engramcp/
 │   ├── llm_adapters.py     # Concrete adapters (`openai`, `noop`) + adapter factory
 │   ├── prompt_builder.py   # Dynamic extraction prompt
 │   ├── consolidation.py    # Consolidation pipeline orchestrator + idempotent claim/source writes + contradiction/abstraction stages
-│   └── retrieval.py        # Layer 6 retrieval service + scoring protocol + bounded graph-context fallback
+│   └── retrieval.py        # Layer 6 retrieval service + scoring protocol + bounded graph-context fallback (claim + derived nodes)
 └── audit/                  # Audit logging
     ├── __init__.py         # Re-exports AuditLogger, AuditEvent, AuditEventType
     ├── schemas.py          # AuditEventType enum + AuditEvent model
@@ -163,13 +164,15 @@ src/engramcp/
 - **Scenario eval location**: all Tier 1, Tier 2, and Tier 3 evaluation suites must live under `tests/scenarios/` (tests, fixtures, and helpers)
 - **Real-LLM evals**: optional opt-in E2E evals live in `tests/scenarios/test_e2e_real_llm_eval.py` and require explicit environment opt-in + provider credentials
 - **Real-LLM test execution policy**: always ask the user for explicit confirmation before running real-LLM evals (`ENGRAMCP_RUN_REAL_LLM_EVALS=1`), even when `.env` is present and fully configured
-- **Scenario command targets**: use `make test-scenarios` for CI-safe evals (non-`real_llm`), `make test-scenarios-tier2` for curated Tier 2 iteration, and `make test-real-llm-evals` for explicit opt-in provider-backed runs
+- **Scenario command targets**: use `make test-scenarios` for CI-safe evals (non-`real_llm`), `make test-scenarios-tier2` for curated Tier 2 iteration, `make calibrate-eval-thresholds` to generate calibration outputs from scenario metrics, and `make test-real-llm-evals` for explicit opt-in provider-backed runs
+- **Scenario metrics/calibration artifacts**: CI-safe scenario runs emit JSONL metrics (`reports/scenario-metrics.jsonl`) and calibration reports (`reports/eval-calibration.json`) used to track pass/fail metric classes and threshold recommendations
 - **Confidence**: NATO two-dimensional rating (letter = source reliability, number = credibility)
 - **Confidence on relations, not nodes**: same fact can have different ratings from different sources
 - **MCP errors**: tool responses may include `error_code` and `message` when rejected/errored
 - **LLM provider wiring**: consolidation no longer uses implicit noop fallback; configure explicit `llm_config` provider (or inject `llm_adapter` in code/tests)
+- **Scenario eval config profile**: use `scenario_eval_consolidation_config()` from `config.py` for deterministic scenario-only tuning (`fragment_threshold=4`, `pattern_min_occurrences=2`) instead of hardcoding values in tests
 - **Extraction failure policy**: extraction output is schema-validated (`ExtractionResult`) and supports configurable retries for provider errors/invalid JSON/schema validation failures via `ConsolidationConfig` retry fields
-- **Graph retrieval matching**: claim lookup by content uses tokenized query matching (ANY token contained) rather than full-query substring matching
+- **Graph retrieval matching**: graph lookup by content (claims + derived nodes) uses tokenized query matching (ANY token contained) rather than full-query substring matching
 - **Graph causal traversal query**: causal-chain retrieval filters relationship types at runtime (`type(rel) IN [...]`) to keep behavior stable while avoiding noisy Neo4j unknown-type notifications in sparse graphs/tests
 - **DDD (Domain-Driven Design)**: each domain has bounded contexts with `models/`, `memory/`, `graph/`, `engine/`, `audit/` modules. Domain logic stays in its module; cross-cutting concerns use explicit interfaces.
 - **Domain package structure**: each domain follows `schemas.py` (Pydantic models), `store.py` (DB access), `__init__.py` (business logic + re-exports). External code imports from the domain package (e.g. `from engramcp.memory import MemoryFragment`).

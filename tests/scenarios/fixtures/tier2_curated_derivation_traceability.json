@@ -1,0 +1,10 @@
+{
+  "scenario_name": "tier2_curated_derivation_traceability",
+  "fragments": [
+    "Signal Alpha repeatedly triggered service degradation.",
+    "Signal Alpha repeatedly triggered service degradation.",
+    "Signal Beta repeatedly caused packet loss.",
+    "Signal Beta repeatedly caused packet loss."
+  ],
+  "query": "causal rule recurring concept patterns"
+}
