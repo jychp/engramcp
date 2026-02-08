@@ -16,6 +16,10 @@ from engramcp.engine.demand import QueryPattern
 from engramcp.engine.extraction import ExtractionEngine
 from engramcp.engine.extraction import LLMAdapter
 from engramcp.engine.extraction import LLMError
+from engramcp.engine.retrieval import GraphRetriever
+from engramcp.engine.retrieval import RecencyConfidenceScorer
+from engramcp.engine.retrieval import RetrievalEngine
+from engramcp.engine.retrieval import RetrievalScorer
 from engramcp.engine.schemas import ExtractedClaim
 from engramcp.engine.schemas import ExtractedEntity
 from engramcp.engine.schemas import ExtractedRelation
@@ -43,5 +47,9 @@ __all__ = [
     "PropagatedRating",
     "QueryDemandTracker",
     "QueryPattern",
+    "GraphRetriever",
+    "RecencyConfidenceScorer",
+    "RetrievalEngine",
+    "RetrievalScorer",
     "TemporalInfo",
 ]

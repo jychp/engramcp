@@ -49,6 +49,7 @@ When exploring external projects for patterns or reference, clone them into `ext
 | [Extraction](docs/design/extraction.md) | Layer 4 design: LLMAdapter protocol, ExtractionEngine, prompt builder, extraction schemas |
 | [Entity Resolution](docs/design/entity-resolution.md) | Layer 4 design: three-level resolver, normalizer, scorer, merge executor, anti-patterns |
 | [Consolidation Pipeline](docs/design/consolidation-pipeline.md) | Layer 4: async trigger wiring, extraction integration, contradiction detection, and abstraction stages |
+| [Retrieval Engine](docs/design/retrieval.md) | Layer 6 design: WM-first retrieval service, scoring protocol, graph fallback stub, demand tracking hooks |
 
 ## Community & Governance Documents
 
@@ -77,8 +78,8 @@ Agent → correct_memory → [Graph mutations + cascade]
 
 | Layer | Module | Description |
 |---|---|---|
-| 7 | `server.py` | MCP interface + consolidation assembly/wiring + retrieval demand tracking hooks (send_memory, get_memory, correct_memory) |
-| 6 | `engine/retrieval.py` | Graph traversal, scoring, synthesis |
+| 7 | `server.py` | MCP interface + consolidation/retrieval assembly/wiring (send_memory, get_memory, correct_memory) |
+| 6 | `engine/retrieval.py` | WM-first retrieval, fallback traversal stub, scoring, synthesis, demand-hook emission |
 | 5 | `engine/concepts.py`, `engine/demand.py` | Concept emergence from retrieval demand |
 | 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline, LLM extraction, contradiction detection, abstraction |
 | 3 | `engine/confidence.py` | NATO rating, propagation, corroboration |
@@ -131,7 +132,7 @@ src/engramcp/
 │   ├── extraction.py       # LLMAdapter protocol + ExtractionEngine
 │   ├── prompt_builder.py   # Dynamic extraction prompt
 │   ├── consolidation.py    # Consolidation pipeline orchestrator + contradiction/abstraction stages
-│   └── future modules      # retrieval.py
+│   └── retrieval.py        # Layer 6 retrieval service + scoring protocol + graph fallback stub
 └── audit/                  # Audit logging
     ├── __init__.py         # Re-exports AuditLogger, AuditEvent, AuditEventType
     ├── schemas.py          # AuditEventType enum + AuditEvent model

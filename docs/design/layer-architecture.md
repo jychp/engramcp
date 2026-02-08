@@ -15,8 +15,8 @@ EngraMCP is decomposed into 8 testable layers, numbered 0 (innermost, data) to 7
 
 ```
 Layer 7 — MCP Interface          server.py
-Layer 6 — Retrieval Engine        (planned)
-Layer 5 — Concept Emergence       (planned)
+Layer 6 — Retrieval Engine        engine/retrieval.py
+Layer 5 — Concept Emergence       engine/concepts.py, engine/demand.py
 Layer 4 — Consolidation Engine    engine/consolidation.py, engine/extraction.py
 Layer 3 — Confidence Engine       engine/confidence.py
 Layer 2 — Graph Store             graph/store.py, graph/schema.py
@@ -42,7 +42,7 @@ See [MCP Interface design doc](mcp-interface.md) for details.
 
 ### Layer 6 — Retrieval Engine
 
-**Module**: planned (`engine/retrieval.py`)
+**Module**: `engine/retrieval.py`
 **Depends on**: Layer 1 (Working Memory), Layer 2 (Graph Store), Layer 5 (Concepts)
 
 Intelligent graph traversal with causal reasoning:
@@ -55,7 +55,7 @@ Also tracks query patterns for concept emergence (feeds Layer 5).
 
 ### Layer 5 — Concept Emergence
 
-**Modules**: planned (`engine/concepts.py`, `engine/demand.py`)
+**Modules**: `engine/concepts.py`, `engine/demand.py`
 **Depends on**: Layer 4 (Consolidation), Layer 2 (Graph Store)
 
 Domain concepts emerge from **retrieval demand**, not from extraction volume. The system only creates new types when users actually query for them.
@@ -179,7 +179,7 @@ Upper layers are tested with mocks that get progressively replaced as lower laye
 | Graph Store (2) | Not needed until Layer 2 | Layer 2 implemented |
 | Confidence Engine (3) | Static ratings | Layer 3 implemented |
 | Consolidation LLM (4) | Deterministic JSON responses | Layer 4 implemented |
-| Retrieval Engine (6) | Keyword matching in `server.py` + `memory/store.py` | Layer 6 implemented |
+| Retrieval Engine (6) | Keyword matching in `server.py` + `memory/store.py` | Replaced by `engine/retrieval.py` (WM-first + graph fallback stub + scoring protocol) |
 
 ---
 
