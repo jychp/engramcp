@@ -72,7 +72,27 @@ async def _run_consolidation(fragments: list[MemoryFragment]) -> None:
     if pipeline is None or wm is None or not fragments:
         return
 
-    await pipeline.run(fragments)
+    run_result = await pipeline.run(fragments)
+    had_mutation = any(
+        (
+            run_result.entities_created,
+            run_result.entities_merged,
+            run_result.entities_linked,
+            run_result.claims_created,
+            run_result.relations_created,
+            run_result.contradictions_detected,
+            run_result.patterns_created,
+            run_result.concepts_created,
+            run_result.rules_created,
+        )
+    )
+    if run_result.errors and not had_mutation:
+        msg = "; ".join(run_result.errors[:3])
+        raise RuntimeError(
+            "Consolidation produced no mutations and reported errors; "
+            f"skipping fragment deletion for retry: {msg}"
+        )
+
     for fragment in fragments:
         await wm.delete(fragment.id)
 
