@@ -48,7 +48,7 @@ When exploring external projects for patterns or reference, clone them into `ext
 | [Config & Audit](docs/design/config-audit.md) | Config dataclasses, async JSONL audit logger, AuditEventType enum |
 | [Extraction](docs/design/extraction.md) | Layer 4 design: LLMAdapter protocol, ExtractionEngine, prompt builder, extraction schemas |
 | [Entity Resolution](docs/design/entity-resolution.md) | Layer 4 design: three-level resolver, normalizer, scorer, merge executor, anti-patterns |
-| [Consolidation Pipeline](docs/design/consolidation-pipeline.md) | Layer 4: async trigger wiring, extraction integration, contradiction detection, and abstraction stages |
+| [Consolidation Pipeline](docs/design/consolidation-pipeline.md) | Layer 4: async trigger wiring, extraction integration, idempotent claim/source consolidation, contradiction detection, and abstraction stages |
 | [Retrieval Engine](docs/design/retrieval.md) | Layer 6 design: WM-first retrieval service, scoring protocol, bounded graph-context fallback (`max_depth`), demand tracking hooks |
 
 ## Community & Governance Documents
@@ -81,7 +81,7 @@ Agent → correct_memory → [WM-first contest/annotate + graph-aware split/merg
 | 7 | `server.py` | MCP interface + consolidation/retrieval assembly/wiring + correction audit flows (WM-first `contest`/`annotate`; graph-aware `split_entity`/`merge_entities`/derived-lifecycle-aware `reclassify` with WM fallback where applicable; consolidation requires explicit LLM provider wiring via `LLMConfig`/adapter) |
 | 6 | `engine/retrieval.py` | WM-first retrieval, bounded graph-context fallback (`max_depth`), scoring, synthesis, demand-hook emission |
 | 5 | `engine/concepts.py`, `engine/demand.py` | Concept emergence from retrieval demand |
-| 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline, LLM extraction, contradiction detection, abstraction |
+| 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline, LLM extraction, idempotent claim/source writes for repeated runs, contradiction detection, abstraction |
 | 3 | `engine/confidence.py` | NATO rating, propagation, corroboration |
 | 2 | `graph/store.py`, `graph/schema.py` | Neo4j CRUD, ontology, constraints |
 | 1 | `memory/store.py` | Redis-backed buffer, TTL, keyword search |
@@ -132,7 +132,7 @@ src/engramcp/
 │   ├── extraction.py       # LLMAdapter protocol + ExtractionEngine
 │   ├── llm_adapters.py     # Concrete adapters (`openai`, `noop`) + adapter factory
 │   ├── prompt_builder.py   # Dynamic extraction prompt
-│   ├── consolidation.py    # Consolidation pipeline orchestrator + contradiction/abstraction stages
+│   ├── consolidation.py    # Consolidation pipeline orchestrator + idempotent claim/source writes + contradiction/abstraction stages
 │   └── retrieval.py        # Layer 6 retrieval service + scoring protocol + bounded graph-context fallback
 └── audit/                  # Audit logging
     ├── __init__.py         # Re-exports AuditLogger, AuditEvent, AuditEventType

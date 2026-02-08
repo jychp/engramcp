@@ -314,6 +314,48 @@ class TestClaimIntegration:
         # At least one CONCERNS relationship should be created
         assert graph_store.create_relationship.call_count >= 1
 
+    async def test_existing_claim_still_links_concerns_on_retry(
+        self, pipeline, extraction_engine, entity_resolver, graph_store
+    ):
+        entity = _make_entity(name="Alice", type="Agent")
+        claim = _make_claim(
+            content="Alice did something",
+            involved_entities=["Alice"],
+        )
+        extraction_engine.extract.return_value = ExtractionResult(
+            entities=[entity],
+            claims=[claim],
+        )
+        entity_resolver.resolve.return_value = ResolutionCandidate(
+            entity_name="Alice",
+            existing_node_id=None,
+            existing_name=None,
+            score=0.0,
+            action=ResolutionAction.create_new,
+            method="level_1",
+        )
+
+        claim_id = "claim-existing"
+
+        async def _get_node(node_id: str):
+            if node_id == claim_id:
+                return Fact(id=claim_id, content="Alice did something")
+            return None
+
+        graph_store.get_node.side_effect = _get_node
+        graph_store.get_relationships.return_value = []
+        graph_store.create_node.return_value = "alice-id"
+
+        with patch("engramcp.engine.consolidation._stable_claim_id", return_value=claim_id):
+            result = await pipeline.run([_make_fragment()])
+
+        assert result.claims_created == 0
+        assert graph_store.create_node.call_count == 1
+        assert any(
+            call.args[:2] == (claim_id, "alice-id")
+            for call in graph_store.create_relationship.call_args_list
+        )
+
     async def test_unknown_claim_type_skipped_with_error(
         self, pipeline, extraction_engine, graph_store
     ):
