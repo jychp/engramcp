@@ -335,22 +335,33 @@ class WorkingMemory:
             for raw_id, _ in popped
         ]
 
-        kw_lookup = self._redis.pipeline()
+        lookup = self._redis.pipeline()
         for fid in evicted_ids:
-            kw_lookup.get(f"{_FRAG_KW_KEY}:{fid}")
-        kw_payloads = await kw_lookup.execute()
+            lookup.get(f"{_FRAG_KW_KEY}:{fid}")
+            lookup.get(f"{_FRAGMENT_KEY}:{fid}")
+        lookup_payloads = await lookup.execute()
 
         cleanup = self._redis.pipeline()
-        for fid, kw_data in zip(evicted_ids, kw_payloads):
+        for idx, fid in enumerate(evicted_ids):
+            kw_data = lookup_payloads[idx * 2]
+            fragment_data = lookup_payloads[idx * 2 + 1]
             cleanup.delete(f"{_FRAGMENT_KEY}:{fid}")
             cleanup.delete(f"{_FRAG_KW_KEY}:{fid}")
 
-            if not kw_data:
-                continue
-            try:
-                keywords: list[str] = json.loads(kw_data)
-            except (TypeError, json.JSONDecodeError):
-                keywords = []
+            keywords: list[str] = []
+            if kw_data:
+                try:
+                    keywords = json.loads(kw_data)
+                except (TypeError, json.JSONDecodeError):
+                    keywords = []
+            elif fragment_data:
+                # Fallback when frag_kw is missing: recover keywords from payload.
+                try:
+                    fragment = MemoryFragment.model_validate_json(fragment_data)
+                    keywords = list(_tokenize(fragment.content))
+                except Exception:
+                    keywords = []
+
             for word in keywords:
                 cleanup.srem(f"{_KEYWORD_KEY}:{word}", fid)
         await cleanup.execute()
