@@ -26,6 +26,7 @@ from engramcp.models import (
     Event,
     Fact,
     FactStatus,
+    LeadsTo,
     Observation,
     Outcome,
     ParticipatedIn,
@@ -506,6 +507,31 @@ class TestQueries:
         assert len(contexts) == 1
         assert contexts[0]["sources"] == []
         assert contexts[0]["contradictions"] == []
+
+    async def test_causal_chain_relation_matches_terminal_target_edge(self, graph_store):
+        origin = Fact(content="Origin claim about storm")
+        middle = Fact(content="Middle causal step")
+        terminal = Fact(content="Terminal operational disruption")
+        for node in (origin, middle, terminal):
+            await graph_store.create_node(node)
+
+        await graph_store.create_relationship(origin.id, middle.id, CausedBy())
+        await graph_store.create_relationship(middle.id, terminal.id, LeadsTo())
+
+        contexts = await graph_store.find_claim_context_by_content(
+            "origin claim",
+            limit=5,
+            max_depth=2,
+            include_sources=False,
+            include_contradictions=False,
+        )
+
+        assert len(contexts) == 1
+        chain = contexts[0]["causal_chain"]
+        by_target = {link["target_id"]: link["relation"] for link in chain}
+        assert by_target[middle.id] == "CAUSED_BY"
+        # Terminal target must reflect the terminal edge in the path.
+        assert by_target[terminal.id] == "LEADS_TO"
 
     async def test_find_contradictions_unresolved(self, graph_store):
         f1 = Fact(content="Claim A")

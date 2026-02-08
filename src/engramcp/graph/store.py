@@ -459,12 +459,12 @@ class GraphStore:
             "-(m:Memory) "
             "WITH m, p "
             "ORDER BY length(p) ASC "
-            "WITH m, head(relationships(p)) AS first_rel "
+            "WITH m, last(relationships(p)) AS terminal_rel "
             "RETURN DISTINCT "
-            "type(first_rel) AS relation, "
+            "type(terminal_rel) AS relation, "
             "m.id AS target_id, "
             "coalesce(m.content, '') AS target_summary, "
-            "coalesce(first_rel.credibility, first_rel.confidence, null) AS confidence "
+            "coalesce(terminal_rel.credibility, terminal_rel.confidence, null) AS confidence "
             "LIMIT 20"
         )
         result = await session.run(query, node_id=node_id)
