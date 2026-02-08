@@ -1,3 +1,8 @@
+---
+name: engramcp-audit
+description: Codebase audit.
+---
+
 You are a senior software engineer performing a comprehensive codebase audit. Your goal is to produce an actionable report with prioritized findings.
 
 ## Deployment context

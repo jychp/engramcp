@@ -58,6 +58,7 @@ def merge_executor():
 def graph_store():
     store = AsyncMock()
     store.find_by_label.return_value = []
+    store.find_claim_nodes.return_value = []
     store.create_node.return_value = "node-id"
     store.create_relationship.return_value = True
     return store
@@ -434,6 +435,89 @@ class TestRelationIntegration:
         result = await pipeline.run([_make_fragment()])
         assert result.relations_created == 0
         assert any("Unknown1" in e or "Unknown2" in e for e in result.errors)
+
+
+# ===================================================================
+# Contradictions
+# ===================================================================
+
+
+class TestContradictions:
+    async def test_detects_contradiction_with_existing_claim(
+        self, pipeline, extraction_engine, graph_store
+    ):
+        claim = _make_claim(content="Alice is in Paris", claim_type="Fact")
+        extraction_engine.extract.return_value = ExtractionResult(claims=[claim])
+        graph_store.find_claim_nodes.return_value = [Fact(content="Alice is not in Paris")]
+        graph_store.create_node.return_value = "new-claim-id"
+
+        await pipeline.run([_make_fragment()])
+
+        contradiction_calls = [
+            call
+            for call in graph_store.create_relationship.call_args_list
+            if call.args[2].rel_type == "CONTRADICTS"
+        ]
+        assert contradiction_calls
+
+
+# ===================================================================
+# Abstraction
+# ===================================================================
+
+
+class TestAbstraction:
+    async def test_repeated_claims_create_pattern(self, pipeline, extraction_engine, graph_store):
+        claims = [
+            _make_claim(content="Alice filed a report"),
+            _make_claim(content="Alice filed a report"),
+            _make_claim(content="Alice filed a report"),
+        ]
+        extraction_engine.extract.return_value = ExtractionResult(claims=claims)
+        graph_store.find_claim_nodes.return_value = []
+        graph_store.create_node.side_effect = [
+            "claim-1",
+            "claim-2",
+            "claim-3",
+            "pattern-1",
+        ]
+
+        result = await pipeline.run([_make_fragment()])
+
+        assert result.patterns_created == 1
+
+    async def test_causal_relations_create_rule(self, pipeline, extraction_engine, graph_store):
+        claims = [
+            _make_claim(content="Pattern one repeated"),
+            _make_claim(content="Pattern one repeated"),
+            _make_claim(content="Pattern one repeated"),
+            _make_claim(content="Pattern two repeated"),
+            _make_claim(content="Pattern two repeated"),
+            _make_claim(content="Pattern two repeated"),
+        ]
+        relation = _make_relation(relation_type="CAUSED_BY")
+        extraction_engine.extract.return_value = ExtractionResult(
+            claims=claims, relations=[relation]
+        )
+        graph_store.find_claim_nodes.return_value = []
+        graph_store.create_node.side_effect = [
+            "claim-1",
+            "claim-2",
+            "claim-3",
+            "claim-4",
+            "claim-5",
+            "claim-6",
+            "pattern-1",
+            "pattern-2",
+            "concept-1",
+            "rule-1",
+        ]
+
+        result = await pipeline.run([_make_fragment()])
+
+        assert result.patterns_created == 2
+        assert result.concepts_created == 1
+        assert result.rules_created == 1
 
 
 # ===================================================================

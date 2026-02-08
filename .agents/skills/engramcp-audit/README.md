@@ -1,4 +1,4 @@
-# Jarvis Audit Skill
+# EngraMCP Audit Skill
 
 This skill provides a reusable audit workflow script/prompt for EngraMCP maintenance tasks.
 

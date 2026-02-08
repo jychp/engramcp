@@ -283,6 +283,14 @@ class GraphStore:
         )
         return await self._run_multi_node_query(query, r=reliability.value)
 
+    async def find_claim_nodes(self) -> list[MemoryNode]:
+        """Return all claim nodes (Fact/Event/Observation/Decision/Outcome)."""
+        query = (
+            "MATCH (n:Fact|Event|Observation|Decision|Outcome) "
+            "RETURN properties(n) AS props, labels(n) AS labels"
+        )
+        return await self._run_multi_node_query(query)
+
     async def find_contradictions_unresolved(self) -> list[dict]:
         """Find all unresolved CONTRADICTS relationships.
 

@@ -85,6 +85,18 @@ from engramcp.server import configure
 asyncio.run(configure(redis_url="redis://localhost:6379"))
 ```
 
+Enable background consolidation (optional):
+
+```python
+asyncio.run(
+    configure(
+        redis_url="redis://localhost:6379",
+        enable_consolidation=True,
+        neo4j_url="bolt://localhost:7687",
+    )
+)
+```
+
 ## Run Locally
 
 1. Start infrastructure services:
@@ -108,7 +120,11 @@ from engramcp.server import configure, mcp
 
 
 async def main():
-    await configure(redis_url="redis://localhost:6379")
+    await configure(
+        redis_url="redis://localhost:6379",
+        enable_consolidation=True,
+        neo4j_url="bolt://localhost:7687",
+    )
     async with Client(mcp) as client:
         result = await client.call_tool("send_memory", {"content": "Hello memory"})
         print(result)

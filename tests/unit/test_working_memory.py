@@ -170,8 +170,53 @@ class TestLifecycle:
         )
         for i in range(3):
             await wm.store(_make_fragment(f"fact {i}"))
+        await asyncio.sleep(0.05)
         assert len(flushed) == 1
         assert len(flushed[0]) == 3
+
+    async def test_flush_trigger_is_non_blocking(self, redis_client):
+        async def on_flush(_: list[MemoryFragment]) -> None:
+            await asyncio.sleep(0.2)
+
+        wm = WorkingMemory(
+            redis_client,
+            ttl=3600,
+            max_size=1000,
+            flush_threshold=1,
+            on_flush=on_flush,
+        )
+
+        start = asyncio.get_running_loop().time()
+        await wm.store(_make_fragment("non blocking trigger"))
+        elapsed = asyncio.get_running_loop().time() - start
+
+        assert elapsed < 0.1
+
+    async def test_flush_retriggers_after_pending_threshold(self, redis_client):
+        call_count = 0
+
+        async def on_flush(_: list[MemoryFragment]) -> None:
+            nonlocal call_count
+            call_count += 1
+            await asyncio.sleep(0.1)
+
+        wm = WorkingMemory(
+            redis_client,
+            ttl=3600,
+            max_size=1000,
+            flush_threshold=2,
+            on_flush=on_flush,
+        )
+
+        # First two fragments trigger a flush run.
+        await wm.store(_make_fragment("fact 1"))
+        await wm.store(_make_fragment("fact 2"))
+        # During the first run, these stores should mark a pending flush.
+        await wm.store(_make_fragment("fact 3"))
+        await wm.store(_make_fragment("fact 4"))
+
+        await asyncio.sleep(0.35)
+        assert call_count >= 2
 
     async def test_evict_cleans_keyword_index_without_frag_kw(self, redis_client):
         wm = WorkingMemory(redis_client, ttl=3600, max_size=1)

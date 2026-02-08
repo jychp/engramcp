@@ -94,8 +94,9 @@ scores in the recency sorted set) are evicted via `delete()`.
 ## Flush Trigger
 
 When `flush_threshold` is set and the count reaches that value, the
-`on_flush(fragments)` callback is invoked with all current fragments.  This
-hook will be wired to the consolidation engine in a later sprint.
+`on_flush(fragments)` callback is scheduled in a background task with all
+current fragments. The trigger is non-blocking for `store()` and coalesces
+concurrent threshold crossings to avoid duplicate runs.
 
 ## Test Infrastructure
 
