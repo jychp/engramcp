@@ -11,6 +11,8 @@ from engramcp.engine.demand import QueryDemandTracker
 from engramcp.engine.demand import QueryPattern
 from engramcp.memory.schemas import MemoryFragment
 from engramcp.memory.store import WorkingMemory
+from engramcp.models.schemas import Contradiction
+from engramcp.models.schemas import ContradictionNature
 from engramcp.models.schemas import GetMemoryInput
 from engramcp.models.schemas import GetMemoryResult
 from engramcp.models.schemas import MemoryEntry
@@ -80,8 +82,9 @@ class RetrievalEngine:
 
         wm_matches.sort(key=self._scorer.score_working_memory, reverse=True)
         graph_matches: list[MemoryEntry] = []
+        graph_contradictions: list[Contradiction] = []
         if not wm_matches:
-            graph_matches = await self._search_graph(request)
+            graph_matches, graph_contradictions = await self._search_graph(request)
             graph_matches.sort(key=self._scorer.score_graph_memory, reverse=True)
 
         total_found = len(wm_matches) + len(graph_matches)
@@ -107,7 +110,7 @@ class RetrievalEngine:
         )
         return GetMemoryResult(
             memories=memories,
-            contradictions=[],
+            contradictions=graph_contradictions,
             meta=meta,
         )
 
@@ -149,10 +152,23 @@ class RetrievalEngine:
         if signal is not None:
             self._concept_registry.observe_signal(signal)
 
-    async def _search_graph(self, request: GetMemoryInput) -> list[MemoryEntry]:
+    async def _search_graph(
+        self, request: GetMemoryInput
+    ) -> tuple[list[MemoryEntry], list[Contradiction]]:
         """Search graph claims by query content with legacy compatibility fallback."""
         if self._graph is None:
-            return []
+            return [], []
+
+        find_context = getattr(self._graph, "find_claim_context_by_content", None)
+        if callable(find_context):
+            contexts = await find_context(
+                request.query,
+                limit=request.limit,
+                max_depth=request.max_depth,
+                include_sources=request.include_sources,
+                include_contradictions=request.include_contradictions,
+            )
+            return self._context_to_graph_entries(contexts, request)
 
         find_by_content = getattr(self._graph, "find_claim_nodes_by_content", None)
         if callable(find_by_content):
@@ -170,11 +186,16 @@ class RetrievalEngine:
             if query and query not in content.casefold():
                 continue
 
+            node_labels = set(getattr(node, "node_labels", []) or [])
+            base_type, dynamic_type = _labels_to_types(
+                node_labels, fallback=type(node).__name__
+            )
+
             entries.append(
                 MemoryEntry(
                     id=node_id,
-                    type=type(node).__name__,
-                    dynamic_type=None,
+                    type=base_type,
+                    dynamic_type=dynamic_type,
                     content=content,
                     confidence=None,
                     properties={},
@@ -183,7 +204,68 @@ class RetrievalEngine:
                     sources=[],
                 )
             )
-        return entries
+        return entries, []
+
+    def _context_to_graph_entries(
+        self, contexts: Sequence[dict], request: GetMemoryInput
+    ) -> tuple[list[MemoryEntry], list[Contradiction]]:
+        entries: list[MemoryEntry] = []
+        contradictions: list[Contradiction] = []
+        for context in contexts:
+            node = context.get("node", {})
+            node_id = str(node.get("id", ""))
+            content = str(node.get("content", ""))
+            if not node_id or not content:
+                continue
+
+            base_type, dynamic_type = _labels_to_types(
+                node.get("labels", []), fallback="Fact"
+            )
+
+            causal_chain = []
+            if not request.compact:
+                for link in context.get("causal_chain", []):
+                    relation = str(link.get("relation", "")).strip()
+                    target_id = str(link.get("target_id", "")).strip()
+                    target_summary = str(link.get("target_summary", "")).strip()
+                    if not relation or not target_id:
+                        continue
+                    causal_chain.append(
+                        {
+                            "relation": relation.casefold(),
+                            "target_id": target_id,
+                            "target_summary": target_summary,
+                            "confidence": link.get("confidence"),
+                        }
+                    )
+
+            sources: list[SourceEntry] = []
+            if not request.compact and request.include_sources:
+                sources = [SourceEntry(**src) for src in context.get("sources", [])]
+
+            entries.append(
+                MemoryEntry(
+                    id=node_id,
+                    type=base_type,
+                    dynamic_type=dynamic_type,
+                    content=content,
+                    confidence=node.get("confidence"),
+                    properties=node.get("properties", {}) or {},
+                    participants=[],
+                    causal_chain=causal_chain,
+                    sources=sources,
+                )
+            )
+
+            if request.compact or not request.include_contradictions:
+                continue
+
+            for contradiction_raw in context.get("contradictions", []):
+                contradictions.append(
+                    self._to_contradiction(contradiction_raw, default_memory_id=node_id)
+                )
+
+        return entries, contradictions
 
     def _to_memory_entry(
         self, fragment: MemoryFragment, request: GetMemoryInput
@@ -204,6 +286,32 @@ class RetrievalEngine:
             sources=sources,
         )
 
+    def _to_contradiction(self, raw: dict, *, default_memory_id: str) -> Contradiction:
+        contradictory = raw.get("memory") or {}
+        base_type, dynamic_type = _labels_to_types(
+            contradictory.get("labels", []), fallback="Fact"
+        )
+        contradicting_memory = MemoryEntry(
+            id=str(contradictory.get("id", "")),
+            type=base_type,
+            dynamic_type=dynamic_type,
+            content=str(contradictory.get("content", "")),
+            confidence=contradictory.get("confidence"),
+            properties=contradictory.get("properties", {}) or {},
+            participants=[],
+            causal_chain=[],
+            sources=[],
+        )
+        nature = _parse_contradiction_nature(raw.get("nature"))
+        return Contradiction(
+            id=str(raw.get("id", "")),
+            memory_id=str(raw.get("memory_id") or default_memory_id),
+            contradicting_memory=contradicting_memory,
+            nature=nature,
+            resolution_status=str(raw.get("resolution_status", "unresolved")),
+            detected_at=raw.get("detected_at"),
+        )
+
 
 def _confidence_bonus(confidence: str | None) -> float:
     """Convert NATO confidence text into a tiny bonus for stable sorting."""
@@ -221,3 +329,40 @@ def _confidence_bonus(confidence: str | None) -> float:
         return 0.0
 
     return letter_quality + number_quality
+
+
+def _parse_contradiction_nature(value: object) -> ContradictionNature:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        try:
+            return ContradictionNature(normalized)
+        except ValueError:
+            pass
+    return ContradictionNature.factual_conflict
+
+
+def _labels_to_types(
+    labels: Sequence[str] | set[str], *, fallback: str
+) -> tuple[str, str | None]:
+    ordered_base = [
+        "Fact",
+        "Event",
+        "Observation",
+        "Decision",
+        "Outcome",
+        "Pattern",
+        "Concept",
+        "Rule",
+        "Agent",
+        "Artifact",
+        "Source",
+    ]
+    raw_labels = [str(label) for label in labels]
+    label_set = set(raw_labels)
+    base_type = next((name for name in ordered_base if name in label_set), fallback)
+    structural_labels = {"Memory", "Temporal", "Derived", base_type}
+    dynamic_type = next(
+        (label for label in raw_labels if label not in structural_labels),
+        None,
+    )
+    return base_type, dynamic_type

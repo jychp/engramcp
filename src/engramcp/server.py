@@ -6,6 +6,8 @@ search.  Call ``configure(redis_url=...)`` before using the server.
 
 from __future__ import annotations
 
+import time
+
 from fastmcp import FastMCP
 from neo4j import AsyncDriver
 from neo4j import AsyncGraphDatabase
@@ -31,12 +33,16 @@ from engramcp.graph import MergeExecutor
 from engramcp.memory import create_memory_fragment
 from engramcp.memory import WorkingMemory
 from engramcp.memory.schemas import MemoryFragment
+from engramcp.models.schemas import AnnotatePayload
+from engramcp.models.schemas import ContestPayload
 from engramcp.models.schemas import CorrectionAction
 from engramcp.models.schemas import CorrectMemoryInput
 from engramcp.models.schemas import CorrectMemoryResult
 from engramcp.models.schemas import GetMemoryInput
 from engramcp.models.schemas import GetMemoryResult
+from engramcp.models.schemas import MergeEntitiesPayload
 from engramcp.models.schemas import MetaInfo
+from engramcp.models.schemas import ReclassifyPayload
 from engramcp.models.schemas import SendMemoryInput
 from engramcp.models.schemas import SendMemoryResult
 from engramcp.models.schemas import SplitEntityPayload
@@ -280,6 +286,62 @@ async def _log_correct_memory_event(payload: dict) -> None:
     )
 
 
+def _downgrade_confidence(confidence: str | None) -> str:
+    """Downgrade a NATO rating by one conservative step, capped at F6."""
+    if not confidence or len(confidence) < 2:
+        return "F6"
+
+    letters = "ABCDEF"
+    letter = confidence[0].upper()
+    number_raw = confidence[1:]
+    try:
+        letter_idx = letters.index(letter)
+        number = int(number_raw)
+    except (ValueError, IndexError):
+        return "F6"
+
+    number = min(max(number, 1), 6)
+    if number < 6:
+        return f"{letter}{number + 1}"
+
+    if letter_idx < len(letters) - 1:
+        return f"{letters[letter_idx + 1]}6"
+    return "F6"
+
+
+def _contest_cascade_hook(target_id: str) -> dict:
+    """Placeholder for future graph confidence cascade wiring."""
+    return {
+        "triggered": False,
+        "reason": "cascade_not_configured",
+        "target_id": target_id,
+    }
+
+
+async def _replace_fragment(wm: WorkingMemory, fragment: MemoryFragment) -> None:
+    """Replace an existing fragment while preserving ID and index consistency."""
+    await wm.delete(fragment.id)
+    await wm.store(fragment)
+
+
+def _confidence_sort_key(confidence: str | None) -> tuple[int, int]:
+    """Return sortable quality key (smaller is better)."""
+    if not confidence or len(confidence) < 2:
+        return (99, 99)
+    letters = "ABCDEF"
+    try:
+        return (letters.index(confidence[0].upper()), int(confidence[1:]))
+    except (ValueError, IndexError):
+        return (99, 99)
+
+
+def _best_confidence(*values: str | None) -> str | None:
+    candidates = [value for value in values if value is not None]
+    if not candidates:
+        return None
+    return min(candidates, key=_confidence_sort_key)
+
+
 @mcp.tool
 async def send_memory(
     content: str,
@@ -503,14 +565,278 @@ async def correct_memory(
             details=split_details,
         )
 
+    if action_enum == CorrectionAction.contest:
+        try:
+            contest_payload = ContestPayload.model_validate(validated.payload or {})
+        except ValidationError as exc:
+            return _correct_rejected(
+                validated.target_id,
+                action=action_enum,
+                error_code="validation_error",
+                message=_validation_message(exc),
+            )
+
+        target = await wm.get(validated.target_id)
+        if target is None:
+            return CorrectMemoryResult(
+                target_id=validated.target_id,
+                action=action_enum,
+                status="not_found",
+            )
+
+        old_confidence = target.confidence
+        new_confidence = _downgrade_confidence(old_confidence)
+        updated_properties = dict(target.properties)
+        updated_properties["status"] = "contested"
+        updated_properties["contest_reason"] = contest_payload.reason
+        updated_properties["contested_at"] = time.time()
+        updated = target.model_copy(
+            update={
+                "confidence": new_confidence,
+                "properties": updated_properties,
+                "timestamp": time.time(),
+            }
+        )
+        await _replace_fragment(wm, updated)
+
+        cascade = _contest_cascade_hook(validated.target_id)
+        details = {
+            "reason": contest_payload.reason,
+            "old_confidence": old_confidence,
+            "new_confidence": new_confidence,
+            "cascade": cascade,
+        }
+        await _log_correct_memory_event(
+            {
+                "target_id": validated.target_id,
+                "action": action_enum.value,
+                "status": "applied",
+                "reason": contest_payload.reason,
+                "old_confidence": old_confidence,
+                "new_confidence": new_confidence,
+                "cascade": cascade,
+            }
+        )
+        return CorrectMemoryResult(
+            target_id=validated.target_id,
+            action=action_enum,
+            status="applied",
+            details=details,
+        )
+
+    if action_enum == CorrectionAction.annotate:
+        try:
+            annotate_payload = AnnotatePayload.model_validate(validated.payload or {})
+        except ValidationError as exc:
+            return _correct_rejected(
+                validated.target_id,
+                action=action_enum,
+                error_code="validation_error",
+                message=_validation_message(exc),
+            )
+
+        target = await wm.get(validated.target_id)
+        if target is None:
+            return CorrectMemoryResult(
+                target_id=validated.target_id,
+                action=action_enum,
+                status="not_found",
+            )
+
+        updated_properties = dict(target.properties)
+        existing_annotations = updated_properties.get("annotations", [])
+        if not isinstance(existing_annotations, list):
+            existing_annotations = []
+        existing_annotations.append(
+            {
+                "note": annotate_payload.note,
+                "created_at": time.time(),
+            }
+        )
+        updated_properties["annotations"] = existing_annotations
+        updated = target.model_copy(
+            update={
+                "properties": updated_properties,
+                "timestamp": time.time(),
+            }
+        )
+        await _replace_fragment(wm, updated)
+
+        details = {
+            "note": annotate_payload.note,
+            "annotation_count": len(existing_annotations),
+        }
+        await _log_correct_memory_event(
+            {
+                "target_id": validated.target_id,
+                "action": action_enum.value,
+                "status": "applied",
+                "note": annotate_payload.note,
+                "annotation_count": len(existing_annotations),
+            }
+        )
+        return CorrectMemoryResult(
+            target_id=validated.target_id,
+            action=action_enum,
+            status="applied",
+            details=details,
+        )
+
+    if action_enum == CorrectionAction.merge_entities:
+        try:
+            merge_payload = MergeEntitiesPayload.model_validate(validated.payload or {})
+        except ValidationError as exc:
+            return _correct_rejected(
+                validated.target_id,
+                action=action_enum,
+                error_code="validation_error",
+                message=_validation_message(exc),
+            )
+
+        if merge_payload.merge_with == validated.target_id:
+            return _correct_rejected(
+                validated.target_id,
+                action=action_enum,
+                error_code="invalid_merge_target",
+                message="merge_with must be different from target_id.",
+            )
+
+        target = await wm.get(validated.target_id)
+        if target is None:
+            return CorrectMemoryResult(
+                target_id=validated.target_id,
+                action=action_enum,
+                status="not_found",
+            )
+        merge_with = await wm.get(merge_payload.merge_with)
+        if merge_with is None:
+            return CorrectMemoryResult(
+                target_id=validated.target_id,
+                action=action_enum,
+                status="not_found",
+            )
+
+        merged_content_parts = [target.content]
+        if merge_with.content != target.content:
+            merged_content_parts.append(merge_with.content)
+        merged_properties = dict(target.properties)
+        merged_properties["merged_from"] = merge_with.id
+        merged_properties["merged_at"] = time.time()
+
+        merged_sources = list(target.sources)
+        existing_source_ids = {src.get("id") for src in merged_sources}
+        for source in merge_with.sources:
+            source_id = source.get("id")
+            if source_id not in existing_source_ids:
+                merged_sources.append(source)
+                existing_source_ids.add(source_id)
+
+        merged = target.model_copy(
+            update={
+                "content": " | ".join(merged_content_parts),
+                "confidence": _best_confidence(
+                    target.confidence, merge_with.confidence
+                ),
+                "sources": merged_sources,
+                "properties": merged_properties,
+                "timestamp": time.time(),
+            }
+        )
+        await wm.delete(merge_with.id)
+        await _replace_fragment(wm, merged)
+
+        details = {
+            "merged_into": validated.target_id,
+            "merged_from": merge_with.id,
+            "confidence": merged.confidence,
+        }
+        await _log_correct_memory_event(
+            {
+                "target_id": validated.target_id,
+                "action": action_enum.value,
+                "status": "applied",
+                "merged_into": validated.target_id,
+                "merged_from": merge_with.id,
+                "confidence": merged.confidence,
+            }
+        )
+        return CorrectMemoryResult(
+            target_id=validated.target_id,
+            action=action_enum,
+            status="applied",
+            details=details,
+        )
+
+    if action_enum == CorrectionAction.reclassify:
+        try:
+            reclass_payload = ReclassifyPayload.model_validate(validated.payload or {})
+        except ValidationError as exc:
+            return _correct_rejected(
+                validated.target_id,
+                action=action_enum,
+                error_code="validation_error",
+                message=_validation_message(exc),
+            )
+
+        target = await wm.get(validated.target_id)
+        if target is None:
+            return CorrectMemoryResult(
+                target_id=validated.target_id,
+                action=action_enum,
+                status="not_found",
+            )
+
+        old_type = target.type
+        updated_properties = dict(target.properties)
+        history = updated_properties.get("reclassify_history", [])
+        if not isinstance(history, list):
+            history = []
+        history.append(
+            {
+                "from": old_type,
+                "to": reclass_payload.new_type,
+                "at": time.time(),
+            }
+        )
+        updated_properties["reclassify_history"] = history
+
+        updated = target.model_copy(
+            update={
+                "type": reclass_payload.new_type,
+                "properties": updated_properties,
+                "timestamp": time.time(),
+            }
+        )
+        await _replace_fragment(wm, updated)
+
+        details = {
+            "old_type": old_type,
+            "new_type": reclass_payload.new_type,
+        }
+        await _log_correct_memory_event(
+            {
+                "target_id": validated.target_id,
+                "action": action_enum.value,
+                "status": "applied",
+                "old_type": old_type,
+                "new_type": reclass_payload.new_type,
+            }
+        )
+        return CorrectMemoryResult(
+            target_id=validated.target_id,
+            action=action_enum,
+            status="applied",
+            details=details,
+        )
+
     # Mock: apply correction (real logic in later sprints)
-    details: dict = {}
+    fallback_details = {}
     if validated.payload:
-        details = validated.payload
+        fallback_details = validated.payload
 
     return CorrectMemoryResult(
         target_id=validated.target_id,
         action=action_enum,
         status="applied",
-        details=details,
+        details=fallback_details,
     )

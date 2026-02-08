@@ -304,6 +304,66 @@ class GraphStore:
         )
         return await self._run_multi_node_query(cypher, search_query=query, limit=limit)
 
+    async def find_claim_context_by_content(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        max_depth: int = 3,
+        include_sources: bool = True,
+        include_contradictions: bool = True,
+    ) -> list[dict]:
+        """Find claims and enrich each hit with bounded graph context."""
+        if max_depth < 1:
+            max_depth = 1
+        if max_depth > 10:
+            max_depth = 10
+
+        node_query = (
+            "MATCH (n:Fact|Event|Observation|Decision|Outcome) "
+            "WHERE toLower(n.content) CONTAINS toLower($search_query) "
+            "RETURN properties(n) AS props, labels(n) AS labels "
+            "ORDER BY n.updated_at DESC "
+            "LIMIT $limit"
+        )
+        async with self._driver.session() as session:
+            node_result = await session.run(node_query, search_query=query, limit=limit)
+            nodes = [record.data() async for record in node_result]
+            contexts: list[dict] = []
+            for node_record in nodes:
+                props = _convert_props(node_record["props"])
+                node_id = props.get("id")
+                if not node_id:
+                    continue
+
+                context = {
+                    "node": {
+                        "id": props["id"],
+                        "content": props.get("content", ""),
+                        "labels": list(node_record["labels"]),
+                        "confidence": props.get("confidence"),
+                        "properties": props,
+                    },
+                    "causal_chain": await self._fetch_causal_chain(
+                        session=session, node_id=node_id, max_depth=max_depth
+                    ),
+                    "sources": [],
+                    "contradictions": [],
+                }
+
+                if include_sources:
+                    context["sources"] = await self._fetch_source_trail(
+                        session=session, node_id=node_id
+                    )
+
+                if include_contradictions:
+                    context["contradictions"] = await self._fetch_contradictions(
+                        session=session, node_id=node_id
+                    )
+
+                contexts.append(context)
+            return contexts
+
     async def find_contradictions_unresolved(self) -> list[dict]:
         """Find all unresolved CONTRADICTS relationships.
 
@@ -385,3 +445,110 @@ class GraphStore:
                 )
                 nodes.append(node)
             return nodes
+
+    async def _fetch_causal_chain(
+        self,
+        *,
+        session,
+        node_id: str,
+        max_depth: int,
+    ) -> list[dict]:
+        query = (
+            "MATCH p = (n:Memory {id: $node_id})-"
+            f"[:CAUSED_BY|LEADS_TO|PRECEDED|FOLLOWED*1..{max_depth}]"
+            "-(m:Memory) "
+            "WITH m, p "
+            "ORDER BY length(p) ASC "
+            "WITH m, last(relationships(p)) AS terminal_rel "
+            "RETURN DISTINCT "
+            "type(terminal_rel) AS relation, "
+            "m.id AS target_id, "
+            "coalesce(m.content, '') AS target_summary, "
+            "coalesce(terminal_rel.credibility, terminal_rel.confidence, null) AS confidence "
+            "LIMIT 20"
+        )
+        result = await session.run(query, node_id=node_id)
+        links: list[dict] = []
+        async for record in result:
+            links.append(
+                {
+                    "relation": record["relation"],
+                    "target_id": record["target_id"],
+                    "target_summary": record["target_summary"],
+                    "confidence": record["confidence"],
+                }
+            )
+        return links
+
+    async def _fetch_source_trail(self, *, session, node_id: str) -> list[dict]:
+        query = (
+            "MATCH (n:Memory {id: $node_id})-[r:SOURCED_FROM]->(s:Source) "
+            "RETURN properties(s) AS source_props, properties(r) AS rel_props "
+            "ORDER BY s.ingested_at DESC "
+            "LIMIT 20"
+        )
+        result = await session.run(query, node_id=node_id)
+        sources: list[dict] = []
+        async for record in result:
+            source_props = _convert_props(record["source_props"])
+            rel_props = _convert_props(record["rel_props"])
+            credibility_raw = rel_props.get("credibility")
+            if credibility_raw is not None:
+                credibility_raw = str(credibility_raw)
+            sources.append(
+                {
+                    "id": source_props.get("id"),
+                    "type": source_props.get("type", "unknown"),
+                    "ref": source_props.get("ref"),
+                    "citation": source_props.get("citation"),
+                    "reliability": source_props.get("reliability"),
+                    "credibility": credibility_raw,
+                }
+            )
+        return sources
+
+    async def _fetch_contradictions(self, *, session, node_id: str) -> list[dict]:
+        query = (
+            "MATCH (n:Memory {id: $node_id})-[r:CONTRADICTS]-(m:Memory) "
+            "WHERE r.resolution_status = $status "
+            "RETURN properties(r) AS rel_props, properties(m) AS mem_props, labels(m) AS mem_labels "
+            "ORDER BY r.detected_at DESC "
+            "LIMIT 20"
+        )
+        result = await session.run(
+            query,
+            node_id=node_id,
+            status=ResolutionStatus.unresolved.value,
+        )
+        contradictions: list[dict] = []
+        index = 0
+        async for record in result:
+            index += 1
+            rel_props = _convert_props(record["rel_props"])
+            mem_props = _convert_props(record["mem_props"])
+            contradiction_id = rel_props.get("id")
+            if not contradiction_id:
+                contradiction_id = f"{node_id}:contra:{index}"
+            contradictions.append(
+                {
+                    "id": contradiction_id,
+                    "memory_id": node_id,
+                    "nature": "factual_conflict",
+                    "resolution_status": rel_props.get(
+                        "resolution_status", ResolutionStatus.unresolved.value
+                    ),
+                    "detected_at": (
+                        rel_props["detected_at"].isoformat()
+                        if rel_props.get("detected_at") is not None
+                        else None
+                    ),
+                    "memory": {
+                        "id": mem_props.get("id", ""),
+                        "content": mem_props.get("content", ""),
+                        "labels": list(record["mem_labels"]),
+                        "confidence": mem_props.get("confidence"),
+                        "properties": mem_props,
+                    },
+                }
+            )
+        return contradictions

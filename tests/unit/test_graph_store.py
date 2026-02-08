@@ -16,6 +16,7 @@ from engramcp.models import (
     AgentType,
     Artifact,
     ArtifactType,
+    CausedBy,
     Concept,
     Concerns,
     Contradicts,
@@ -25,6 +26,7 @@ from engramcp.models import (
     Event,
     Fact,
     FactStatus,
+    LeadsTo,
     Observation,
     Outcome,
     ParticipatedIn,
@@ -446,6 +448,90 @@ class TestQueries:
         assert fact.id in ids
         assert observation.id in ids
         assert event.id not in ids
+
+    async def test_find_claim_context_by_content_with_bounded_depth(self, graph_store):
+        root = Fact(content="Severe weather event")
+        direct = Fact(content="Storm impacted flight routes")
+        far = Fact(content="Airport backlog due to weather")
+        contra = Fact(content="No weather issue reported")
+        src = Source(type="flight_log", reliability=Reliability.B, citation="page 3")
+
+        for node in (root, direct, far, contra, src):
+            await graph_store.create_node(node)
+
+        await graph_store.create_relationship(direct.id, root.id, CausedBy())
+        await graph_store.create_relationship(root.id, far.id, CausedBy())
+        await graph_store.create_relationship(
+            direct.id,
+            src.id,
+            SourcedFrom(credibility=Credibility.TWO),
+        )
+        await graph_store.create_relationship(
+            direct.id,
+            contra.id,
+            Contradicts(
+                detection_run_id="run-ctx-1",
+                resolution_status=ResolutionStatus.unresolved,
+            ),
+        )
+
+        contexts = await graph_store.find_claim_context_by_content(
+            "storm",
+            limit=5,
+            max_depth=1,
+            include_sources=True,
+            include_contradictions=True,
+        )
+
+        assert len(contexts) == 1
+        context = contexts[0]
+        assert context["node"]["id"] == direct.id
+        target_ids = {link["target_id"] for link in context["causal_chain"]}
+        assert root.id in target_ids
+        assert far.id not in target_ids
+        assert len(context["sources"]) == 1
+        assert context["sources"][0]["id"] == src.id
+        assert len(context["contradictions"]) == 1
+        assert context["contradictions"][0]["memory"]["id"] == contra.id
+
+    async def test_find_claim_context_by_content_can_skip_heavy_fields(self, graph_store):
+        fact = Fact(content="Storm impacted flight routes")
+        await graph_store.create_node(fact)
+
+        contexts = await graph_store.find_claim_context_by_content(
+            "storm",
+            include_sources=False,
+            include_contradictions=False,
+        )
+
+        assert len(contexts) == 1
+        assert contexts[0]["sources"] == []
+        assert contexts[0]["contradictions"] == []
+
+    async def test_causal_chain_relation_matches_terminal_target_edge(self, graph_store):
+        origin = Fact(content="Origin claim about storm")
+        middle = Fact(content="Middle causal step")
+        terminal = Fact(content="Terminal operational disruption")
+        for node in (origin, middle, terminal):
+            await graph_store.create_node(node)
+
+        await graph_store.create_relationship(origin.id, middle.id, CausedBy())
+        await graph_store.create_relationship(middle.id, terminal.id, LeadsTo())
+
+        contexts = await graph_store.find_claim_context_by_content(
+            "origin claim",
+            limit=5,
+            max_depth=2,
+            include_sources=False,
+            include_contradictions=False,
+        )
+
+        assert len(contexts) == 1
+        chain = contexts[0]["causal_chain"]
+        by_target = {link["target_id"]: link["relation"] for link in chain}
+        assert by_target[middle.id] == "CAUSED_BY"
+        # Terminal target must reflect the terminal edge in the path.
+        assert by_target[terminal.id] == "LEADS_TO"
 
     async def test_find_contradictions_unresolved(self, graph_store):
         f1 = Fact(content="Claim A")
