@@ -448,3 +448,38 @@ class TestCorrectMemoryActions:
         event = json.loads(lines[0])
         assert event["payload"]["action"] == "reclassify"
         assert event["payload"]["storage"] == "graph"
+
+    async def test_reclassify_graph_history_uses_structured_json_entries(
+        self,
+        graph_split_client,
+        graph_store: GraphStore,
+    ):
+        client, _ = graph_split_client
+        pattern = Pattern(content="Temporary derived signal", derivation_run_id="run-h")
+        await graph_store.create_node(pattern)
+
+        await client.call_tool(
+            "correct_memory",
+            {
+                "target_id": pattern.id,
+                "action": "reclassify",
+                "payload": {"new_type": "Coincidence"},
+            },
+        )
+
+        driver = graph_store._driver
+        async with driver.session() as session:
+            result = await session.run(
+                "MATCH (n:Memory {id: $id}) RETURN n.reclassify_history AS history",
+                id=pattern.id,
+            )
+            record = await result.single()
+            assert record is not None
+            history = record["history"]
+
+        assert isinstance(history, list)
+        assert history
+        decoded = json.loads(history[0])
+        assert decoded["from"] == "Pattern"
+        assert decoded["to"] == "Coincidence"
+        assert isinstance(decoded["at"], float)

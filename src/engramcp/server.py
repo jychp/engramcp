@@ -6,6 +6,7 @@ search.  Call ``configure(redis_url=...)`` before using the server.
 
 from __future__ import annotations
 
+import json
 import time
 
 from fastmcp import FastMCP
@@ -350,6 +351,51 @@ def _best_confidence(*values: str | None) -> str | None:
     return min(candidates, key=_confidence_sort_key)
 
 
+def _normalize_reclassify_history_entry(entry: object) -> dict[str, object] | None:
+    """Normalize one reclassify history entry to ``{from,to,at}`` shape.
+
+    Supports:
+    - Dict entries from WM path
+    - JSON-string encoded dict entries from graph path
+    - Legacy ``from->to@timestamp`` string format
+    """
+    if isinstance(entry, dict):
+        src = entry.get("from")
+        dst = entry.get("to")
+        at = entry.get("at")
+        if src is None or dst is None:
+            return None
+        return {"from": str(src), "to": str(dst), "at": float(at or 0.0)}
+
+    if isinstance(entry, str):
+        # Preferred graph representation: JSON string entry
+        try:
+            decoded = json.loads(entry)
+            if isinstance(decoded, dict):
+                return _normalize_reclassify_history_entry(decoded)
+        except json.JSONDecodeError:
+            pass
+
+        # Backward compatibility with legacy "A->B@ts" format
+        if "->" in entry and "@" in entry:
+            pair, _, ts = entry.partition("@")
+            src, _, dst = pair.partition("->")
+            if src and dst:
+                try:
+                    at_val = float(ts)
+                except ValueError:
+                    at_val = 0.0
+                return {"from": src, "to": dst, "at": at_val}
+
+    return None
+
+
+def _reclassify_history_record(
+    old_type: str, new_type: str, at: float
+) -> dict[str, object]:
+    return {"from": old_type, "to": new_type, "at": at}
+
+
 async def _merge_entities_in_graph(
     target_id: str,
     merge_with_id: str,
@@ -414,14 +460,23 @@ async def _reclassify_in_graph(target_id: str, new_type: str) -> dict | None:
         )
         old_type = next((label for label in known_types if label in labels), "Memory")
 
-        history = props.get("reclassify_history", [])
-        if not isinstance(history, list):
-            history = []
+        history_raw = props.get("reclassify_history", [])
+        if not isinstance(history_raw, list):
+            history_raw = []
+        history: list[dict[str, object]] = []
+        for item in history_raw:
+            normalized = _normalize_reclassify_history_entry(item)
+            if normalized is not None:
+                history.append(normalized)
         now = time.time()
-        history.append(f"{old_type}->{new_type}@{now}")
+        history.append(_reclassify_history_record(old_type, new_type, now))
 
         updates: dict = {
-            "reclassify_history": history,
+            # Neo4j properties cannot store nested maps; keep structured entries
+            # encoded as JSON strings for parity with WM history shape.
+            "reclassify_history": [
+                json.dumps(item, separators=(",", ":")) for item in history
+            ],
             "reclassified_to": new_type,
             "reclassified_at": now,
             "updated_at": now,
@@ -950,15 +1005,20 @@ async def correct_memory(
 
         old_type = target.type
         updated_properties = dict(target.properties)
-        history = updated_properties.get("reclassify_history", [])
-        if not isinstance(history, list):
-            history = []
+        history_raw = updated_properties.get("reclassify_history", [])
+        if not isinstance(history_raw, list):
+            history_raw = []
+        history: list[dict[str, object]] = []
+        for item in history_raw:
+            normalized = _normalize_reclassify_history_entry(item)
+            if normalized is not None:
+                history.append(normalized)
         history.append(
-            {
-                "from": old_type,
-                "to": reclass_payload.new_type,
-                "at": time.time(),
-            }
+            _reclassify_history_record(
+                old_type,
+                reclass_payload.new_type,
+                time.time(),
+            )
         )
         updated_properties["reclassify_history"] = history
 
