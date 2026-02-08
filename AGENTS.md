@@ -151,8 +151,10 @@ src/engramcp/
 - **Linting**: black, flake8, isort, mypy, pyupgrade (pre-commit)
 - **Async**: pytest-asyncio with `asyncio_mode = "auto"`
 - **Testing**: testcontainers for Neo4j and Redis (session-scoped fixtures)
+- **Pytest markers**: tests are auto-labeled by path (`unit`, `integration`, `scenario`), with `real_llm` reserved for opt-in provider-backed evals
 - **Test env loading**: pytest loads root `.env` (via `python-dotenv` in `tests/conftest.py`) for explicit opt-in test flags/credentials
-- **Real-LLM evals**: optional opt-in E2E evals live in `tests/integration/test_e2e_real_llm_eval.py` and require explicit environment opt-in + provider credentials
+- **Scenario eval location**: all Tier 1, Tier 2, and Tier 3 evaluation suites must live under `tests/scenarios/` (tests, fixtures, and helpers)
+- **Real-LLM evals**: optional opt-in E2E evals live in `tests/scenarios/test_e2e_real_llm_eval.py` and require explicit environment opt-in + provider credentials
 - **Real-LLM test execution policy**: always ask the user for explicit confirmation before running real-LLM evals (`ENGRAMCP_RUN_REAL_LLM_EVALS=1`), even when `.env` is present and fully configured
 - **Confidence**: NATO two-dimensional rating (letter = source reliability, number = credibility)
 - **Confidence on relations, not nodes**: same fact can have different ratings from different sources

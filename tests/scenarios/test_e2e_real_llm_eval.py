@@ -25,13 +25,16 @@ from engramcp.server import shutdown
 _RUN_REAL_EVALS = os.getenv("ENGRAMCP_RUN_REAL_LLM_EVALS") == "1"
 _OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-pytestmark = pytest.mark.skipif(
-    not (_RUN_REAL_EVALS and _OPENAI_API_KEY),
-    reason=(
-        "Real-LLM evals are opt-in. Set ENGRAMCP_RUN_REAL_LLM_EVALS=1 and "
-        "OPENAI_API_KEY to enable."
+pytestmark = [
+    pytest.mark.real_llm,
+    pytest.mark.skipif(
+        not (_RUN_REAL_EVALS and _OPENAI_API_KEY),
+        reason=(
+            "Real-LLM evals are opt-in. Set ENGRAMCP_RUN_REAL_LLM_EVALS=1 and "
+            "OPENAI_API_KEY to enable."
+        ),
     ),
-)
+]
 
 
 def _parse(result) -> dict:

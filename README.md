@@ -217,11 +217,16 @@ cp .env.example .env
 # edit .env and set ENGRAMCP_RUN_REAL_LLM_EVALS=1 + OPENAI_API_KEY
 ```
 
+Execution policy:
+- Real-LLM eval tests are never run implicitly in collaborative workflows.
+- Always ask for explicit user confirmation before triggering them, even if `.env` is already configured.
+
 ```bash
-ENGRAMCP_RUN_REAL_LLM_EVALS=1 \
-OPENAI_API_KEY=... \
-uv run pytest tests/integration/test_e2e_real_llm_eval.py -q
+make test-real-llm-evals
 ```
+
+Why tokenized graph retrieval matching:
+- Retrieval now matches claim content on query tokens (not full-query substring only), reducing false negatives for natural-language queries like `meeting date` against stored claim text.
 
 ## Releases and Changelog
 

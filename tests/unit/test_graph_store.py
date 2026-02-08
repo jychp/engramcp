@@ -11,6 +11,7 @@ from datetime import timezone
 
 import pytest
 
+from engramcp.graph.store import _tokenize_query
 from engramcp.models import (
     Agent,
     AgentType,
@@ -39,6 +40,23 @@ from engramcp.models import (
     SourcedFrom,
     TemporalPrecision,
 )
+
+
+class TestQueryTokenization:
+    def test_empty_query_returns_no_tokens(self) -> None:
+        assert _tokenize_query("") == []
+
+    def test_punctuation_only_returns_no_tokens(self) -> None:
+        assert _tokenize_query("... !!! ???") == []
+
+    def test_deduplicates_and_casefolds_tokens(self) -> None:
+        assert _tokenize_query("Meeting meeting DATE date") == ["meeting", "date"]
+
+    def test_drops_short_tokens_when_long_tokens_exist(self) -> None:
+        assert _tokenize_query("to meeting at date") == ["meeting", "date"]
+
+    def test_keeps_short_tokens_when_only_short_tokens_exist(self) -> None:
+        assert _tokenize_query("to be or") == ["to", "be", "or"]
 
 
 # ===================================================================
