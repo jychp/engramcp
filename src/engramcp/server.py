@@ -36,6 +36,8 @@ from engramcp.graph import MergeExecutor
 from engramcp.memory import create_memory_fragment
 from engramcp.memory import WorkingMemory
 from engramcp.memory.schemas import MemoryFragment
+from engramcp.models.nodes import Agent
+from engramcp.models.nodes import MemoryNode
 from engramcp.models.schemas import AnnotatePayload
 from engramcp.models.schemas import ContestPayload
 from engramcp.models.schemas import CorrectionAction
@@ -216,6 +218,26 @@ def _get_concept_candidate_count() -> int:
 
 
 _VALID_RELIABILITY_LETTERS = set("ABCDEF")
+_ALLOWED_GRAPH_REL_TYPES = {
+    "SOURCED_FROM",
+    "DERIVED_FROM",
+    "CITES",
+    "CAUSED_BY",
+    "LEADS_TO",
+    "PRECEDED",
+    "FOLLOWED",
+    "SUPPORTS",
+    "CONTRADICTS",
+    "PARTICIPATED_IN",
+    "DECIDED_BY",
+    "OBSERVED_BY",
+    "MENTIONS",
+    "CONCERNS",
+    "GENERALIZES",
+    "INSTANCE_OF",
+    "POSSIBLY_SAME_AS",
+    "MERGED_FROM",
+}
 
 
 def _validation_message(exc: ValidationError) -> str:
@@ -388,6 +410,93 @@ def _reclassify_history_record(
     old_type: str, new_type: str, at: float
 ) -> dict[str, object]:
     return {"from": old_type, "to": new_type, "at": at}
+
+
+def _build_split_graph_node(target_node: MemoryNode, split_value: str) -> MemoryNode:
+    """Clone a graph node for split operation with content/name overridden."""
+    payload = target_node.model_dump(exclude={"id", "created_at", "updated_at"})
+    if "name" in payload:
+        payload["name"] = split_value
+        if isinstance(target_node, Agent):
+            payload["aliases"] = list(
+                dict.fromkeys([*target_node.aliases, target_node.name])
+            )
+    elif "content" in payload:
+        payload["content"] = split_value
+    else:
+        msg = f"Node type {type(target_node).__name__} cannot be split"
+        raise ValueError(msg)
+    return type(target_node)(**payload)
+
+
+async def _split_entity_in_graph(target_id: str, split_into: list[str]) -> dict | None:
+    """Split a graph node into multiple nodes and duplicate its relationships."""
+    if _graph_driver is None:
+        return None
+
+    graph_store = GraphStore(_graph_driver)
+    target_node = await graph_store.get_node(target_id)
+    if target_node is None:
+        return None
+
+    created_memory_ids: list[str] = []
+    for split_value in split_into:
+        new_node = _build_split_graph_node(target_node, split_value)
+        created_memory_ids.append(await graph_store.create_node(new_node))
+
+    outgoing: list[dict] = []
+    incoming: list[dict] = []
+    async with _graph_driver.session() as session:
+        outgoing_result = await session.run(
+            "MATCH (n:Memory {id: $id})-[r]->(m:Memory) "
+            "RETURN type(r) AS rel_type, properties(r) AS props, m.id AS other_id",
+            id=target_id,
+        )
+        outgoing = [record.data() async for record in outgoing_result]
+
+        incoming_result = await session.run(
+            "MATCH (m:Memory)-[r]->(n:Memory {id: $id}) "
+            "RETURN type(r) AS rel_type, properties(r) AS props, m.id AS other_id",
+            id=target_id,
+        )
+        incoming = [record.data() async for record in incoming_result]
+
+        redistributed = 0
+        for child_id in created_memory_ids:
+            for rel in outgoing:
+                rel_type = str(rel.get("rel_type", ""))
+                if rel_type not in _ALLOWED_GRAPH_REL_TYPES:
+                    continue
+                await session.run(
+                    "MATCH (a:Memory {id: $from_id}), (b:Memory {id: $to_id}) "
+                    f"CREATE (a)-[r:{rel_type}]->(b) "
+                    "SET r = $props",
+                    from_id=child_id,
+                    to_id=rel.get("other_id"),
+                    props=rel.get("props") or {},
+                )
+                redistributed += 1
+            for rel in incoming:
+                rel_type = str(rel.get("rel_type", ""))
+                if rel_type not in _ALLOWED_GRAPH_REL_TYPES:
+                    continue
+                await session.run(
+                    "MATCH (a:Memory {id: $from_id}), (b:Memory {id: $to_id}) "
+                    f"CREATE (a)-[r:{rel_type}]->(b) "
+                    "SET r = $props",
+                    from_id=rel.get("other_id"),
+                    to_id=child_id,
+                    props=rel.get("props") or {},
+                )
+                redistributed += 1
+
+    await graph_store.delete_node(target_id)
+    return {
+        "split_into": split_into,
+        "created_memory_ids": created_memory_ids,
+        "redistributed_relationships": redistributed,
+        "storage": "graph",
+    }
 
 
 async def _merge_entities_in_graph(
@@ -659,7 +768,6 @@ async def correct_memory(
     if action_enum in (
         CorrectionAction.contest,
         CorrectionAction.annotate,
-        CorrectionAction.split_entity,
     ) and not await wm.exists(validated.target_id):
         return CorrectMemoryResult(
             target_id=validated.target_id,
@@ -683,6 +791,30 @@ async def correct_memory(
                 action=action_enum,
                 error_code="validation_error",
                 message="split_into must contain at least one item.",
+            )
+
+        graph_details = await _split_entity_in_graph(
+            validated.target_id, split_payload.split_into
+        )
+        if graph_details is not None:
+            await _log_correct_memory_event(
+                {
+                    "target_id": validated.target_id,
+                    "action": action_enum.value,
+                    "status": "applied",
+                    "created_memory_ids": graph_details["created_memory_ids"],
+                    "split_into": graph_details["split_into"],
+                    "storage": graph_details["storage"],
+                    "redistributed_relationships": graph_details[
+                        "redistributed_relationships"
+                    ],
+                }
+            )
+            return CorrectMemoryResult(
+                target_id=validated.target_id,
+                action=action_enum,
+                status="applied",
+                details=graph_details,
             )
 
         target = await wm.get(validated.target_id)
@@ -718,6 +850,7 @@ async def correct_memory(
         split_details = {
             "split_into": split_payload.split_into,
             "created_memory_ids": created_memory_ids,
+            "storage": "working_memory",
         }
         await _log_correct_memory_event(
             {
@@ -726,6 +859,7 @@ async def correct_memory(
                 "status": "applied",
                 "created_memory_ids": created_memory_ids,
                 "split_into": split_payload.split_into,
+                "storage": "working_memory",
             }
         )
         return CorrectMemoryResult(

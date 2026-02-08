@@ -15,8 +15,10 @@ from engramcp.models.nodes import Agent
 from engramcp.models.nodes import AgentType
 from engramcp.models.nodes import Concept
 from engramcp.models.nodes import DerivedStatus
+from engramcp.models.nodes import Fact
 from engramcp.models.nodes import Pattern
 from engramcp.models.nodes import Rule
+from engramcp.models.relations import Concerns
 from engramcp.models.relations import DerivedFrom
 from engramcp.server import _get_wm
 from engramcp.server import configure
@@ -128,6 +130,58 @@ class TestCorrectMemorySplitFlow:
         assert await wm.exists(target_id)
         if audit_path.exists():
             assert audit_path.read_text().strip() == ""
+
+    async def test_split_entity_uses_graph_path_and_redistributes_relations(
+        self,
+        graph_split_client,
+        graph_store: GraphStore,
+    ):
+        client, audit_path = graph_split_client
+        target = Agent(name="John / Jonathan Smith", type=AgentType.person)
+        witness_fact = Fact(content="Witness report references merged identity")
+        target_id = await graph_store.create_node(target)
+        witness_id = await graph_store.create_node(witness_fact)
+        await graph_store.create_relationship(witness_id, target_id, Concerns())
+
+        result = await client.call_tool(
+            "correct_memory",
+            {
+                "target_id": target_id,
+                "action": "split_entity",
+                "payload": {"split_into": ["John Smith", "Jonathan Smith"]},
+            },
+        )
+        data = _parse(result)
+
+        assert data["status"] == "applied"
+        assert data["action"] == "split_entity"
+        assert data["details"]["storage"] == "graph"
+        created_ids = data["details"]["created_memory_ids"]
+        assert len(created_ids) == 2
+
+        removed_target = await graph_store.get_node(target_id)
+        assert removed_target is None
+
+        children = [await graph_store.get_node(node_id) for node_id in created_ids]
+        assert all(child is not None for child in children)
+        assert {child.name for child in children if child is not None} == {
+            "John Smith",
+            "Jonathan Smith",
+        }
+
+        for node_id in created_ids:
+            incoming = await graph_store.get_relationships(
+                node_id,
+                rel_type="CONCERNS",
+                direction="incoming",
+            )
+            assert any(rel["from_id"] == witness_id for rel in incoming)
+
+        lines = audit_path.read_text().strip().splitlines()
+        assert len(lines) == 1
+        event = json.loads(lines[0])
+        assert event["payload"]["action"] == "split_entity"
+        assert event["payload"]["storage"] == "graph"
 
 
 class TestCorrectMemoryActions:
