@@ -29,13 +29,13 @@ EngraMCP is a biomimetic memory engine for LLM agents. It models memory as a str
 EngraMCP exposes three MCP tools:
 
 - `send_memory` to ingest memory fragments
-- `get_memory` to retrieve relevant knowledge with graph traversal
-- `correct_memory` to apply corrections and graph mutations
+- `get_memory` to retrieve relevant working-memory fragments (keyword + confidence filter)
+- `correct_memory` to validate correction requests and apply the current correction stub
 
 Core capabilities:
 
 - Working memory to graph consolidation pipeline
-- Causal and temporal reasoning in retrieval
+- Layered architecture ready for graph-based retrieval and reasoning
 - NATO-style confidence model (source reliability + claim credibility)
 - Full source traceability across derived memories
 
@@ -49,6 +49,7 @@ Current implemented foundation includes:
 - Consolidation pipeline and extraction engine scaffolding
 - Confidence engine with propagation logic
 - Security and quality workflows in CI
+- Uniform MCP validation and error response fields (`error_code`, `message`)
 
 ## Installation
 
@@ -86,16 +87,16 @@ asyncio.run(configure(redis_url="redis://localhost:6379"))
 
 ## Run Locally
 
-1. Start Neo4j (optional for current working-memory-only flows):
+1. Start infrastructure services:
 
 ```bash
-docker compose up -d neo4j
+docker compose up -d redis neo4j
 ```
 
-2. Start Redis (required):
+2. Verify services are healthy:
 
 ```bash
-docker run --rm -p 6379:6379 redis:7
+docker compose ps
 ```
 
 3. Start using the MCP server in Python:

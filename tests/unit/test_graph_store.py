@@ -334,6 +334,12 @@ class TestRelationships:
         created = await graph_store.create_relationship(a1.id, a2.id, rel)
         assert created is True
 
+    async def test_get_relationships_rejects_invalid_direction(self, graph_store):
+        fact = Fact(content="Direction test")
+        await graph_store.create_node(fact)
+        with pytest.raises(ValueError):
+            await graph_store.get_relationships(fact.id, direction="sideways")
+
 
 # ===================================================================
 # Query methods
@@ -473,3 +479,7 @@ class TestQueries:
     async def test_find_by_label_empty_result(self, graph_store):
         results = await graph_store.find_by_label("Pattern")
         assert results == []
+
+    async def test_find_by_label_rejects_invalid_label(self, graph_store):
+        with pytest.raises(ValueError):
+            await graph_store.find_by_label("Agent) DETACH DELETE n //")

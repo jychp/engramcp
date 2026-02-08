@@ -173,6 +173,24 @@ class TestLifecycle:
         assert len(flushed) == 1
         assert len(flushed[0]) == 3
 
+    async def test_evict_cleans_keyword_index_without_frag_kw(self, redis_client):
+        wm = WorkingMemory(redis_client, ttl=3600, max_size=1)
+        first = _make_fragment("Alpha marker")
+        second = _make_fragment("Beta marker")
+
+        await wm.store(first)
+        # Simulate missing per-fragment keyword cache.
+        await redis_client.delete(f"engramcp:frag_kw:{first.id}")
+
+        await wm.store(second)  # Triggers eviction of the first fragment.
+
+        alpha_members = await redis_client.smembers("engramcp:keyword:alpha")
+        decoded = {
+            member.decode() if isinstance(member, bytes) else member
+            for member in alpha_members
+        }
+        assert first.id not in decoded
+
 
 # -----------------------------------------------------------------------
 # TestAgentIdentity

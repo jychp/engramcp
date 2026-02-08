@@ -1,4 +1,18 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: engramcp-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
   neo4j:
     image: neo4j:2025.10-community
     container_name: engramcp-neo4j
@@ -26,5 +40,6 @@ services:
       start_period: 3s
 
 volumes:
+  redis_data:
   neo4j_data:
   neo4j_logs:

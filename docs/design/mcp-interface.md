@@ -10,7 +10,7 @@
 
 The MCP interface is the only entry point for agents interacting with EngraMCP. It exposes three tools via FastMCP v2: **write**, **read**, and **correct**.
 
-All backend logic is currently mocked (module-level dict). Real stores replace it progressively as lower layers are implemented.
+The interface is wired to the Redis-backed `WorkingMemory` domain. `get_memory` currently serves working-memory matches; graph traversal is planned in Layer 6.
 
 ---
 
@@ -31,9 +31,9 @@ FastMCP v2 serializes Pydantic models automatically via `pydantic_core.to_jsonab
 
 `@mcp.tool` returns a `FunctionTool` object, not the original function. Calling tool functions directly is not possible. All tests use `fastmcp.Client` which exercises the full MCP protocol (serialization, validation, transport). This ensures contract compliance.
 
-### Mock strategy
+### Backend strategy
 
-A module-level `_working_memory: dict` in `server.py` acts as the backing store. A `_reset_working_memory()` function is exposed for test cleanup. This is the simplest possible mock — replaced by real `memory/working.py` when the Working Memory layer is implemented.
+`server.py` delegates write/read/existence checks to `WorkingMemory` (`memory/store.py`) and exposes `_reset_working_memory()` for test cleanup.
 
 ---
 
@@ -51,7 +51,8 @@ A module-level `_working_memory: dict` in `server.py` acts as the backing store.
 **Returns**: `SendMemoryResult(memory_id, status)`
 
 **Behavior**:
-- Generates a `mem_<hex8>` ID
+- Validates input with `SendMemoryInput` (size limits, confidence format)
+- Generates a `mem_<hex16>` ID
 - Stores entry with default confidence `<hint_or_F>3` (hint letter + uncorroborated number)
 - Attaches source as `SourceEntry` if provided
 
@@ -86,9 +87,14 @@ A module-level `_working_memory: dict` in `server.py` acts as the backing store.
 **Returns**: `CorrectMemoryResult(target_id, action, status, details)`
 
 **Behavior**:
+- Validates input with `CorrectMemoryInput`
 - Validates `action` against `CorrectionAction` enum
 - Returns `status: "not_found"` if `target_id` doesn't exist
 - Returns `status: "applied"` on success (mock — real cascading logic when the Confidence Engine layer is implemented)
+
+### Error response contract
+
+All tool responses include optional `error_code` and `message` fields. Rejected/errored calls set these fields for consistent MCP client handling.
 
 ---
 
@@ -124,7 +130,6 @@ All tests use `fastmcp.Client(mcp)` — no direct function calls.
 
 ## Future Changes
 
-- `_working_memory` dict replaced by `memory/working.py` (in-memory buffer with TTL, flush-to-disk)
-- `get_memory` mock keyword matching replaced by `engine/retrieval.py` (graph traversal, scoring)
-- `correct_memory` mock replaced by real confidence cascade via `engine/confidence.py`
-- Tool signatures and response shapes are **frozen** — changes require a version bump
+- `get_memory` working-memory keyword retrieval replaced by `engine/retrieval.py` (graph traversal, scoring)
+- `correct_memory` stub replaced by real confidence cascade via `engine/confidence.py`
+- Tool signatures and response shapes are **frozen** — additive fields only without version bump

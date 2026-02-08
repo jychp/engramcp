@@ -78,12 +78,12 @@ Agent → correct_memory → [Graph mutations + cascade]
 | Layer | Module | Description |
 |---|---|---|
 | 7 | `server.py` | MCP Interface (send_memory, get_memory, correct_memory) |
-| 6 | `engine/retrieval.py` | Graph traversal, scoring, synthesis |
-| 5 | `engine/concepts.py`, `engine/demand.py` | Concept emergence from retrieval demand |
+| 6 | *(planned)* `engine/retrieval.py` | Graph traversal, scoring, synthesis |
+| 5 | *(planned)* `engine/concepts.py`, `engine/demand.py` | Concept emergence from retrieval demand |
 | 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline (✅), LLM extraction (✅) |
 | 3 | `engine/confidence.py` | NATO rating, propagation, corroboration (✅) |
 | 2 | `graph/store.py`, `graph/schema.py` | Neo4j CRUD, ontology, constraints (✅) |
-| 1 | `memory/working.py` | Redis-backed buffer, TTL, keyword search (✅) |
+| 1 | `memory/store.py` | Redis-backed buffer, TTL, keyword search (✅) |
 | 0 | `models/` | Schema, indexes, constraints definitions (✅) |
 
 ### Stack
@@ -129,10 +129,7 @@ src/engramcp/
 │   ├── extraction.py       # LLMAdapter protocol + ExtractionEngine (✅)
 │   ├── prompt_builder.py   # Dynamic extraction prompt (✅)
 │   ├── consolidation.py    # Consolidation pipeline orchestrator (✅)
-│   ├── abstraction.py      # Pattern/Concept/Rule emergence
-│   ├── concepts.py         # Concept registry, stabilization
-│   ├── demand.py           # Query pattern tracker
-│   └── retrieval.py        # Graph traversal & scoring
+│   └── (Layer 5/6 modules planned) # concepts.py, demand.py, retrieval.py
 └── audit/                  # Audit logging (✅)
     ├── __init__.py         # Re-exports AuditLogger, AuditEvent, AuditEventType (✅)
     ├── schemas.py          # AuditEventType enum + AuditEvent model (✅)
@@ -152,6 +149,7 @@ src/engramcp/
 - **Testing**: testcontainers for Neo4j and Redis (session-scoped fixtures)
 - **Confidence**: NATO two-dimensional rating (letter = source reliability, number = credibility)
 - **Confidence on relations, not nodes**: same fact can have different ratings from different sources
+- **MCP errors**: tool responses may include `error_code` and `message` when rejected/errored
 - **DDD (Domain-Driven Design)**: each domain has bounded contexts with `models/`, `memory/`, `graph/`, `engine/`, `audit/` modules. Domain logic stays in its module; cross-cutting concerns use explicit interfaces.
 - **Domain package structure**: each domain follows `schemas.py` (Pydantic models), `store.py` (DB access), `__init__.py` (business logic + re-exports). External code imports from the domain package (e.g. `from engramcp.memory import MemoryFragment`).
 

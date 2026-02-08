@@ -1,8 +1,7 @@
 """MCP interface contract tests.
 
 All tests use ``fastmcp.Client`` to exercise the full MCP protocol
-(serialization, validation).  Backend logic is mocked via a module-level
-``_working_memory`` dict in ``server.py``.
+(serialization, validation) against the Redis-backed working memory.
 """
 
 from __future__ import annotations
@@ -75,6 +74,16 @@ class TestSendMemory:
         )
         data = _parse(result)
         assert data["status"] == "accepted"
+
+    async def test_rejects_invalid_confidence_hint_with_error_fields(self, mcp_client):
+        result = await mcp_client.call_tool(
+            "send_memory",
+            {"content": "A met B", "confidence_hint": "Z"},
+        )
+        data = _parse(result)
+        assert data["status"] == "rejected"
+        assert data["error_code"] is not None
+        assert data["message"] is not None
 
 
 # -----------------------------------------------------------------------
@@ -342,6 +351,16 @@ class TestGetMemory:
         data = _parse(result)
         assert data["meta"]["total_found"] == 1
 
+    async def test_rejects_invalid_min_confidence_with_uniform_error(self, mcp_client):
+        result = await mcp_client.call_tool(
+            "get_memory", {"query": "anything", "min_confidence": "ZZ"}
+        )
+        data = _parse(result)
+        assert data["status"] == "error"
+        assert data["error_code"] == "validation_error"
+        assert data["message"] is not None
+        assert data["memories"] == []
+
 
 # -----------------------------------------------------------------------
 # correct_memory
@@ -439,3 +458,14 @@ class TestCorrectMemory:
         )
         data = _parse(result)
         assert data["status"] == "not_found"
+
+    async def test_rejects_invalid_action_with_uniform_error(self, mcp_client):
+        mem_id = await self._send_and_get_id(mcp_client)
+        result = await mcp_client.call_tool(
+            "correct_memory",
+            {"target_id": mem_id, "action": "invalid_action"},
+        )
+        data = _parse(result)
+        assert data["status"] == "rejected"
+        assert data["error_code"] == "validation_error"
+        assert data["message"] is not None

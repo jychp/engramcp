@@ -160,7 +160,8 @@ class WorkingMemory:
         async with self._flush_lock:
             fragments = await self.get_recent(limit=current)
             try:
-                assert self._on_flush is not None
+                if self._on_flush is None:
+                    raise RuntimeError("on_flush callback is not configured")
                 await self._on_flush(fragments)
             except Exception:
                 logger.exception("on_flush callback failed")
@@ -306,6 +307,15 @@ class WorkingMemory:
         if batch:
             await self._redis.delete(*batch)
 
+    async def close(self) -> None:
+        """Close the underlying Redis client."""
+        try:
+            await self._redis.aclose()
+        except RuntimeError as exc:
+            # Test fixtures may reconfigure across event loops; tolerate stale loop handles.
+            if "Event loop is closed" not in str(exc):
+                raise
+
     # -- internal --
 
     async def _evict_if_needed(self) -> None:
@@ -315,8 +325,43 @@ class WorkingMemory:
             return
 
         excess = current - self._max_size
-        # Get the oldest fragment IDs (lowest scores)
-        oldest = await self._redis.zrange(_RECENCY_KEY, 0, excess - 1)
-        for raw_id in oldest:
-            fid = raw_id.decode() if isinstance(raw_id, bytes) else raw_id
-            await self.delete(fid)
+        # Atomically remove oldest IDs from recency set to avoid racey check-then-act.
+        popped = await self._redis.zpopmin(_RECENCY_KEY, excess)
+        if not popped:
+            return
+
+        evicted_ids = [
+            raw_id.decode() if isinstance(raw_id, bytes) else raw_id
+            for raw_id, _ in popped
+        ]
+
+        lookup = self._redis.pipeline()
+        for fid in evicted_ids:
+            lookup.get(f"{_FRAG_KW_KEY}:{fid}")
+            lookup.get(f"{_FRAGMENT_KEY}:{fid}")
+        lookup_payloads = await lookup.execute()
+
+        cleanup = self._redis.pipeline()
+        for idx, fid in enumerate(evicted_ids):
+            kw_data = lookup_payloads[idx * 2]
+            fragment_data = lookup_payloads[idx * 2 + 1]
+            cleanup.delete(f"{_FRAGMENT_KEY}:{fid}")
+            cleanup.delete(f"{_FRAG_KW_KEY}:{fid}")
+
+            keywords: list[str] = []
+            if kw_data:
+                try:
+                    keywords = json.loads(kw_data)
+                except (TypeError, json.JSONDecodeError):
+                    keywords = []
+            elif fragment_data:
+                # Fallback when frag_kw is missing: recover keywords from payload.
+                try:
+                    fragment = MemoryFragment.model_validate_json(fragment_data)
+                    keywords = list(_tokenize(fragment.content))
+                except Exception:
+                    keywords = []
+
+            for word in keywords:
+                cleanup.srem(f"{_KEYWORD_KEY}:{word}", fid)
+        await cleanup.execute()
