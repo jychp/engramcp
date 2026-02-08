@@ -75,6 +75,7 @@ pre-commit install
 Current configuration is code-based (dataclasses), not env-var based.
 
 - LLM settings: `src/engramcp/config.py` (`LLMConfig`)
+  - Providers: `openai` (requires `api_key`) and `noop` (deterministic local/testing adapter)
 - Consolidation settings: `src/engramcp/config.py` (`ConsolidationConfig`)
 - Entity resolution settings: `src/engramcp/config.py` (`EntityResolutionConfig`)
 - Audit settings: `src/engramcp/config.py` (`AuditConfig`)
@@ -91,11 +92,14 @@ asyncio.run(configure(redis_url="redis://localhost:6379"))
 Enable background consolidation (optional):
 
 ```python
+from engramcp.config import LLMConfig
+
 asyncio.run(
     configure(
         redis_url="redis://localhost:6379",
         enable_consolidation=True,
         neo4j_url="bolt://localhost:7687",
+        llm_config=LLMConfig(provider="openai", api_key="YOUR_API_KEY"),
     )
 )
 ```

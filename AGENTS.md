@@ -78,7 +78,7 @@ Agent → correct_memory → [WM-first mutations + graph-aware merge/reclassify 
 
 | Layer | Module | Description |
 |---|---|---|
-| 7 | `server.py` | MCP interface + consolidation/retrieval assembly/wiring + correction audit flows (WM-first `contest`/`annotate`/`split_entity`, graph-aware `merge_entities` + derived-lifecycle-aware `reclassify`) |
+| 7 | `server.py` | MCP interface + consolidation/retrieval assembly/wiring + correction audit flows (WM-first `contest`/`annotate`/`split_entity`, graph-aware `merge_entities` + derived-lifecycle-aware `reclassify`; consolidation requires explicit LLM provider wiring via `LLMConfig`/adapter) |
 | 6 | `engine/retrieval.py` | WM-first retrieval, bounded graph-context fallback (`max_depth`), scoring, synthesis, demand-hook emission |
 | 5 | `engine/concepts.py`, `engine/demand.py` | Concept emergence from retrieval demand |
 | 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline, LLM extraction, contradiction detection, abstraction |
@@ -130,6 +130,7 @@ src/engramcp/
 │   ├── demand.py           # Retrieval query pattern tracking + threshold signal emission
 │   ├── schemas.py          # Extraction result models
 │   ├── extraction.py       # LLMAdapter protocol + ExtractionEngine
+│   ├── llm_adapters.py     # Concrete adapters (`openai`, `noop`) + adapter factory
 │   ├── prompt_builder.py   # Dynamic extraction prompt
 │   ├── consolidation.py    # Consolidation pipeline orchestrator + contradiction/abstraction stages
 │   └── retrieval.py        # Layer 6 retrieval service + scoring protocol + bounded graph-context fallback
@@ -153,6 +154,7 @@ src/engramcp/
 - **Confidence**: NATO two-dimensional rating (letter = source reliability, number = credibility)
 - **Confidence on relations, not nodes**: same fact can have different ratings from different sources
 - **MCP errors**: tool responses may include `error_code` and `message` when rejected/errored
+- **LLM provider wiring**: consolidation no longer uses implicit noop fallback; configure explicit `llm_config` provider (or inject `llm_adapter` in code/tests)
 - **DDD (Domain-Driven Design)**: each domain has bounded contexts with `models/`, `memory/`, `graph/`, `engine/`, `audit/` modules. Domain logic stays in its module; cross-cutting concerns use explicit interfaces.
 - **Domain package structure**: each domain follows `schemas.py` (Pydantic models), `store.py` (DB access), `__init__.py` (business logic + re-exports). External code imports from the domain package (e.g. `from engramcp.memory import MemoryFragment`).
 - **Import-cycle guard**: package re-exports in `graph/__init__.py` use lazy loading (`__getattr__`) to avoid eager cross-domain import cycles during bootstrap/tests.

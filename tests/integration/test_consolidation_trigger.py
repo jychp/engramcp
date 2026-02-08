@@ -12,6 +12,7 @@ from fastmcp import Client
 import engramcp.server as server_module
 from engramcp.config import AuditConfig
 from engramcp.config import ConsolidationConfig
+from engramcp.config import LLMConfig
 from engramcp.server import _get_wm
 from engramcp.server import configure
 from engramcp.server import mcp
@@ -37,6 +38,7 @@ async def _setup_server(redis_container, neo4j_container):
         redis_url=redis_container,
         enable_consolidation=True,
         neo4j_url=neo4j_container,
+        llm_config=LLMConfig(provider="noop"),
         consolidation_config=ConsolidationConfig(fragment_threshold=2),
         audit_config=AuditConfig(enabled=False),
     )

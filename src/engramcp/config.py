@@ -17,6 +17,7 @@ class LLMConfig:
     provider: str = "openai"
     model: str = "gpt-4"
     api_key: str | None = None
+    base_url: str = "https://api.openai.com/v1"
     temperature: float = 0.2
     max_tokens: int = 4096
     timeout_seconds: float = 30.0

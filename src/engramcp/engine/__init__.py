@@ -16,6 +16,9 @@ from engramcp.engine.demand import QueryPattern
 from engramcp.engine.extraction import ExtractionEngine
 from engramcp.engine.extraction import LLMAdapter
 from engramcp.engine.extraction import LLMError
+from engramcp.engine.llm_adapters import build_llm_adapter
+from engramcp.engine.llm_adapters import NoopLLMAdapter
+from engramcp.engine.llm_adapters import OpenAICompatibleLLMAdapter
 from engramcp.engine.retrieval import GraphRetriever
 from engramcp.engine.retrieval import RecencyConfidenceScorer
 from engramcp.engine.retrieval import RetrievalEngine
@@ -44,6 +47,9 @@ __all__ = [
     "ExtractionResult",
     "LLMAdapter",
     "LLMError",
+    "OpenAICompatibleLLMAdapter",
+    "NoopLLMAdapter",
+    "build_llm_adapter",
     "PropagatedRating",
     "QueryDemandTracker",
     "QueryPattern",

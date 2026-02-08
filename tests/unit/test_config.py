@@ -21,6 +21,7 @@ class TestLLMConfig:
         assert cfg.provider == "openai"
         assert cfg.model == "gpt-4"
         assert cfg.api_key is None
+        assert cfg.base_url == "https://api.openai.com/v1"
         assert cfg.temperature == 0.2
         assert cfg.max_tokens == 4096
         assert cfg.timeout_seconds == 30.0

@@ -21,6 +21,8 @@ from engramcp.audit import AuditLogger
 from engramcp.config import AuditConfig
 from engramcp.config import ConsolidationConfig
 from engramcp.config import EntityResolutionConfig
+from engramcp.config import LLMConfig
+from engramcp.engine import build_llm_adapter
 from engramcp.engine import ConceptRegistry
 from engramcp.engine import ConsolidationPipeline
 from engramcp.engine import ExtractionEngine
@@ -61,24 +63,6 @@ _retrieval_engine: RetrievalEngine | None = None
 _audit_logger: AuditLogger | None = None
 
 
-class _NoopLLMAdapter(LLMAdapter):
-    """Fallback LLM adapter returning an empty extraction payload."""
-
-    async def complete(
-        self,
-        prompt: str,
-        *,
-        temperature: float = 0.2,
-        max_tokens: int = 4096,
-        timeout_seconds: float = 30.0,
-    ) -> str:
-        del prompt, temperature, max_tokens, timeout_seconds
-        return (
-            '{"entities":[],"relations":[],"claims":[],'
-            '"fragment_ids_processed":[],"errors":[]}'
-        )
-
-
 async def _run_consolidation(fragments: list[MemoryFragment]) -> None:
     """Run one consolidation pass and clear processed fragments from working memory."""
     pipeline = _consolidation_pipeline
@@ -100,6 +84,8 @@ async def configure(
     on_flush=None,
     enable_consolidation: bool = False,
     neo4j_url: str | None = None,
+    llm_config: LLMConfig | None = None,
+    llm_adapter: LLMAdapter | None = None,
     consolidation_config: ConsolidationConfig | None = None,
     entity_resolution_config: EntityResolutionConfig | None = None,
     audit_config: AuditConfig | None = None,
@@ -133,12 +119,16 @@ async def configure(
             raise ValueError("neo4j_url is required when enable_consolidation=True")
 
         cfg = consolidation_config or ConsolidationConfig()
+        llm_cfg = llm_config or LLMConfig()
+        adapter = llm_adapter or build_llm_adapter(llm_cfg)
+
         _graph_driver = AsyncGraphDatabase.driver(neo4j_url)
         await init_schema(_graph_driver)
 
         graph_store = GraphStore(_graph_driver)
         extraction_engine = ExtractionEngine(
-            llm=_NoopLLMAdapter(),
+            llm=adapter,
+            llm_config=llm_cfg,
             consolidation_config=cfg,
         )
         resolver = EntityResolver(config=entity_resolution_config)
