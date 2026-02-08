@@ -1,17 +1,12 @@
-"""Graph domain — Neo4j knowledge graph storage and schema management."""
+"""Graph domain — Neo4j knowledge graph storage and schema management.
 
-from engramcp.graph.entity_resolution import EntityResolver
-from engramcp.graph.entity_resolution import ExistingEntity
-from engramcp.graph.entity_resolution import MergeExecutor
-from engramcp.graph.entity_resolution import MergeResult
-from engramcp.graph.entity_resolution import normalize_name
-from engramcp.graph.entity_resolution import ResolutionAction
-from engramcp.graph.entity_resolution import ResolutionCandidate
-from engramcp.graph.schema import init_schema
-from engramcp.graph.store import GraphStore
-from engramcp.graph.traceability import IndependenceResult
-from engramcp.graph.traceability import SourceChain
-from engramcp.graph.traceability import SourceTraceability
+Exports are loaded lazily to avoid import cycles between graph and engine
+packages during test/bootstrap imports.
+"""
+
+from __future__ import annotations
+
+from importlib import import_module
 
 __all__ = [
     "EntityResolver",
@@ -27,3 +22,27 @@ __all__ = [
     "init_schema",
     "normalize_name",
 ]
+
+
+_EXPORT_TO_MODULE = {
+    "EntityResolver": "engramcp.graph.entity_resolution",
+    "ExistingEntity": "engramcp.graph.entity_resolution",
+    "MergeExecutor": "engramcp.graph.entity_resolution",
+    "MergeResult": "engramcp.graph.entity_resolution",
+    "ResolutionAction": "engramcp.graph.entity_resolution",
+    "ResolutionCandidate": "engramcp.graph.entity_resolution",
+    "normalize_name": "engramcp.graph.entity_resolution",
+    "init_schema": "engramcp.graph.schema",
+    "GraphStore": "engramcp.graph.store",
+    "IndependenceResult": "engramcp.graph.traceability",
+    "SourceChain": "engramcp.graph.traceability",
+    "SourceTraceability": "engramcp.graph.traceability",
+}
+
+
+def __getattr__(name: str):
+    module_name = _EXPORT_TO_MODULE.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = import_module(module_name)
+    return getattr(module, name)

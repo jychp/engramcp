@@ -1,8 +1,8 @@
 # Retrieval Engine — Design Document
 
 > **Layer**: 6 (`engine/retrieval.py`)
-> **Status**: Foundation implemented
-> **Scope**: WM-first selection, graph content fallback, demand tracking hooks
+> **Status**: Core behavior implemented
+> **Scope**: WM-first selection, bounded graph-context fallback, demand tracking hooks
 
 ---
 
@@ -14,9 +14,9 @@ Current strategy:
 1. Query `WorkingMemory` first (`search(query, min_confidence=...)`)
 2. Apply response shaping (`compact`, `include_sources`, `limit`)
 3. Track retrieval-demand pattern for Layer 5 concept emergence
-4. Fallback to graph content search when working memory has no match
+4. Fallback to graph context retrieval when working memory has no match
 
-This preserves MCP contract behavior while opening a clean extension point for graph traversal and scoring evolution.
+This preserves MCP contract behavior while using depth-aware graph traversal through `max_depth`.
 
 ---
 
@@ -49,14 +49,15 @@ This keeps current ordering stable while exposing a swappable ranking interface 
 
 ## Graph Fallback
 
-Current fallback is query-aware but intentionally limited:
+Graph fallback is query-aware and context-aware:
 
-- Uses `GraphStore.find_claim_nodes_by_content(query, limit)` when available
-- Falls back to `find_claim_nodes()` for legacy retrievers, then applies in-engine content filtering
-- Converts only nodes carrying `id` and `content` into `MemoryEntry`
-- Returns no contradictions, source-chain expansion, or depth traversal yet
+- Uses `find_claim_context_by_content(query, limit, max_depth, include_sources, include_contradictions)` when available
+- Enriches graph hits with bounded causal expansion (`max_depth`)
+- Returns source trail and unresolved contradictions when requested
+- Derives `dynamic_type` from labels beyond ontology base labels
+- Falls back to legacy contracts (`find_claim_nodes_by_content` then `find_claim_nodes`) for compatibility
 
-This is a placeholder for full traversal (depth-aware causal traversal, contradiction expansion, and confidence-aware synthesis).
+Compact mode omits heavy graph fields (`sources`, `causal_chain`, and top-level `contradictions`) consistently.
 
 ---
 
@@ -77,5 +78,7 @@ This keeps concept-emergence signals coupled to real retrieval demand, not inges
 - `tests/unit/test_retrieval.py`
   - `working_memory_first`
   - `falls_through_to_graph`
+  - graph context fallback (`max_depth`, causal/source/contradiction shaping)
+  - compact mode omission behavior
   - retrieval-shape hook tracking
 - Existing MCP contract tests remain unchanged and validate end-to-end behavior through `server.get_memory`.

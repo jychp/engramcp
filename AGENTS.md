@@ -49,7 +49,7 @@ When exploring external projects for patterns or reference, clone them into `ext
 | [Extraction](docs/design/extraction.md) | Layer 4 design: LLMAdapter protocol, ExtractionEngine, prompt builder, extraction schemas |
 | [Entity Resolution](docs/design/entity-resolution.md) | Layer 4 design: three-level resolver, normalizer, scorer, merge executor, anti-patterns |
 | [Consolidation Pipeline](docs/design/consolidation-pipeline.md) | Layer 4: async trigger wiring, extraction integration, contradiction detection, and abstraction stages |
-| [Retrieval Engine](docs/design/retrieval.md) | Layer 6 design: WM-first retrieval service, scoring protocol, graph content fallback, demand tracking hooks |
+| [Retrieval Engine](docs/design/retrieval.md) | Layer 6 design: WM-first retrieval service, scoring protocol, bounded graph-context fallback (`max_depth`), demand tracking hooks |
 
 ## Community & Governance Documents
 
@@ -71,15 +71,15 @@ Three-layer biomimetic memory engine exposed via MCP:
 ```
 Agent → send_memory → [Working Memory] → (async consolidation) → [Neo4j Knowledge Graph]
 Agent → get_memory  → [Retrieval Engine] → Working Memory + Graph traversal → Structured response
-Agent → correct_memory → [Graph mutations + cascade]
+Agent → correct_memory → [WM-first mutations + audit] → (graph-aware path pending)
 ```
 
 ### Layers (top-down)
 
 | Layer | Module | Description |
 |---|---|---|
-| 7 | `server.py` | MCP interface + consolidation/retrieval assembly/wiring + split correction audit flow (send_memory, get_memory, correct_memory) |
-| 6 | `engine/retrieval.py` | WM-first retrieval, graph content fallback, scoring, synthesis, demand-hook emission |
+| 7 | `server.py` | MCP interface + consolidation/retrieval assembly/wiring + WM-first correction audit flows (`contest`, `annotate`, `merge_entities`, `split_entity`, `reclassify`) |
+| 6 | `engine/retrieval.py` | WM-first retrieval, bounded graph-context fallback (`max_depth`), scoring, synthesis, demand-hook emission |
 | 5 | `engine/concepts.py`, `engine/demand.py` | Concept emergence from retrieval demand |
 | 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline, LLM extraction, contradiction detection, abstraction |
 | 3 | `engine/confidence.py` | NATO rating, propagation, corroboration |
@@ -132,7 +132,7 @@ src/engramcp/
 │   ├── extraction.py       # LLMAdapter protocol + ExtractionEngine
 │   ├── prompt_builder.py   # Dynamic extraction prompt
 │   ├── consolidation.py    # Consolidation pipeline orchestrator + contradiction/abstraction stages
-│   └── retrieval.py        # Layer 6 retrieval service + scoring protocol + graph content fallback
+│   └── retrieval.py        # Layer 6 retrieval service + scoring protocol + bounded graph-context fallback
 └── audit/                  # Audit logging
     ├── __init__.py         # Re-exports AuditLogger, AuditEvent, AuditEventType
     ├── schemas.py          # AuditEventType enum + AuditEvent model
@@ -155,6 +155,7 @@ src/engramcp/
 - **MCP errors**: tool responses may include `error_code` and `message` when rejected/errored
 - **DDD (Domain-Driven Design)**: each domain has bounded contexts with `models/`, `memory/`, `graph/`, `engine/`, `audit/` modules. Domain logic stays in its module; cross-cutting concerns use explicit interfaces.
 - **Domain package structure**: each domain follows `schemas.py` (Pydantic models), `store.py` (DB access), `__init__.py` (business logic + re-exports). External code imports from the domain package (e.g. `from engramcp.memory import MemoryFragment`).
+- **Import-cycle guard**: package re-exports in `graph/__init__.py` use lazy loading (`__getattr__`) to avoid eager cross-domain import cycles during bootstrap/tests.
 - **Inline code markers**: use `# TODO:` for intentionally deferred work, and `# DEPRECATED: <reason>` when code is kept only for backward compatibility.
 
 ---

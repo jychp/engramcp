@@ -90,8 +90,11 @@ FastMCP v2 serializes Pydantic models automatically via `pydantic_core.to_jsonab
 - Validates input with `CorrectMemoryInput`
 - Validates `action` against `CorrectionAction` enum
 - Returns `status: "not_found"` if `target_id` doesn't exist
+- Implements `contest`: validates `ContestPayload`, downgrades confidence one conservative step, marks memory as contested in properties, and writes a `CORRECT_MEMORY` audit event
+- Implements `annotate`: validates `AnnotatePayload`, appends annotation metadata in properties without mutating source provenance, and writes a `CORRECT_MEMORY` audit event
 - Implements `split_entity`: validates `SplitEntityPayload`, creates split child memories, deletes original target, and writes a `CORRECT_MEMORY` audit event
-- Returns `status: "applied"` on success for other actions (stub for future graph/cascade behavior)
+- Implements `merge_entities` (WM-first): validates `MergeEntitiesPayload`, merges target + secondary fragment content/provenance, deletes secondary fragment, and writes a `CORRECT_MEMORY` audit event
+- Implements `reclassify` (WM-first): validates `ReclassifyPayload`, updates fragment type with reclassification history in properties, and writes a `CORRECT_MEMORY` audit event
 
 ### Error response contract
 
@@ -131,6 +134,6 @@ All tests use `fastmcp.Client(mcp)` — no direct function calls.
 
 ## Future Changes
 
-- Expand Layer 6 retrieval from content fallback to full graph traversal and contradiction-aware synthesis
-- `correct_memory` stub replaced by real confidence cascade via `engine/confidence.py`
+- Expand `correct_memory` `contest` from WM-local cascade hook to graph-wide confidence cascade via `engine/confidence.py`
+- Replace WM-first `merge_entities` and `reclassify` with graph-backed lifecycle-aware mutations
 - Tool signatures and response shapes are **frozen** — additive fields only without version bump

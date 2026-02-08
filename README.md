@@ -30,7 +30,7 @@ EngraMCP exposes three MCP tools:
 
 - `send_memory` to ingest memory fragments
 - `get_memory` to retrieve relevant working-memory fragments (keyword + confidence filter)
-- `correct_memory` to validate correction requests and apply the current correction stub
+- `correct_memory` to apply contest/annotate/merge/split/reclassify corrections (with audit trail)
 
 Core capabilities:
 
@@ -48,7 +48,8 @@ Current implemented foundation includes:
 - Neo4j graph store and schema initialization
 - Consolidation pipeline and extraction engine scaffolding
 - Layer 5 concept-emergence bootstrap (query-demand tracking + concept candidate registry)
-- Layer 6 retrieval foundation (`engine/retrieval.py`) with WM-first service, scoring interface, and graph fallback stub
+- Layer 6 retrieval service (`engine/retrieval.py`) with WM-first strategy, scoring interface, and bounded graph-context fallback (`max_depth`, causal chains, source trail, contradictions)
+- `correct_memory` actions implemented in WM-first mode (`contest`, `annotate`, `merge_entities`, `split_entity`, `reclassify`) with audit events
 - Confidence engine with propagation logic
 - Security and quality workflows in CI
 - Uniform MCP validation and error response fields (`error_code`, `message`)
