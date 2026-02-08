@@ -6,6 +6,7 @@ search.  Call ``configure(redis_url=...)`` before using the server.
 
 from __future__ import annotations
 
+import json
 import time
 
 from fastmcp import FastMCP
@@ -109,9 +110,17 @@ async def configure(
     """
     global _wm, _graph_driver, _consolidation_pipeline, _retrieval_engine, _audit_logger
     if _wm is not None:
-        await _wm.close()
+        try:
+            await _wm.close()
+        except RuntimeError:
+            # Tests may reconfigure across event loops.
+            pass
     if _graph_driver is not None:
-        await _graph_driver.close()
+        try:
+            await _graph_driver.close()
+        except RuntimeError:
+            # Tests may reconfigure across event loops.
+            pass
         _graph_driver = None
         _consolidation_pipeline = None
 
@@ -342,6 +351,174 @@ def _best_confidence(*values: str | None) -> str | None:
     return min(candidates, key=_confidence_sort_key)
 
 
+def _normalize_reclassify_history_entry(entry: object) -> dict[str, object] | None:
+    """Normalize one reclassify history entry to ``{from,to,at}`` shape.
+
+    Supports:
+    - Dict entries from WM path
+    - JSON-string encoded dict entries from graph path
+    - Legacy ``from->to@timestamp`` string format
+    """
+    if isinstance(entry, dict):
+        src = entry.get("from")
+        dst = entry.get("to")
+        at = entry.get("at")
+        if src is None or dst is None:
+            return None
+        try:
+            at_value = float(at or 0.0)
+        except (TypeError, ValueError):
+            at_value = 0.0
+        return {"from": str(src), "to": str(dst), "at": at_value}
+
+    if isinstance(entry, str):
+        # Preferred graph representation: JSON string entry
+        try:
+            decoded = json.loads(entry)
+            if isinstance(decoded, dict):
+                return _normalize_reclassify_history_entry(decoded)
+        except json.JSONDecodeError:
+            pass
+
+        # Backward compatibility with legacy "A->B@ts" format
+        if "->" in entry and "@" in entry:
+            pair, _, ts = entry.partition("@")
+            src, _, dst = pair.partition("->")
+            if src and dst:
+                try:
+                    at_val = float(ts)
+                except ValueError:
+                    at_val = 0.0
+                return {"from": src, "to": dst, "at": at_val}
+
+    return None
+
+
+def _reclassify_history_record(
+    old_type: str, new_type: str, at: float
+) -> dict[str, object]:
+    return {"from": old_type, "to": new_type, "at": at}
+
+
+async def _merge_entities_in_graph(
+    target_id: str,
+    merge_with_id: str,
+) -> dict | None:
+    """Merge entities in graph storage when Neo4j is configured.
+
+    Returns merge details when both nodes are present in graph, else ``None``.
+    """
+    if _graph_driver is None:
+        return None
+
+    graph_store = GraphStore(_graph_driver)
+    target_node = await graph_store.get_node(target_id)
+    merge_with_node = await graph_store.get_node(merge_with_id)
+    if target_node is None or merge_with_node is None:
+        return None
+
+    merge_executor = MergeExecutor(graph_store)
+    merge_result = await merge_executor.execute_merge(
+        survivor_id=target_id,
+        absorbed_id=merge_with_id,
+        merge_run_id=f"correct_memory_{int(time.time() * 1000)}",
+    )
+    return {
+        "merged_into": merge_result.survivor_id,
+        "merged_from": merge_result.absorbed_id,
+        "aliases_added": merge_result.aliases_added,
+        "relations_transferred": merge_result.relations_transferred,
+        "storage": "graph",
+    }
+
+
+async def _reclassify_in_graph(target_id: str, new_type: str) -> dict | None:
+    """Reclassify a graph node through lifecycle updates when Neo4j is configured."""
+    if _graph_driver is None:
+        return None
+
+    async with _graph_driver.session() as session:
+        result = await session.run(
+            "MATCH (n:Memory {id: $id}) "
+            "RETURN labels(n) AS labels, properties(n) AS props",
+            id=target_id,
+        )
+        record = await result.single()
+        if record is None:
+            return None
+
+        labels = set(record["labels"])
+        props = record["props"] or {}
+        known_types = (
+            "Fact",
+            "Event",
+            "Observation",
+            "Decision",
+            "Outcome",
+            "Agent",
+            "Artifact",
+            "Source",
+            "Pattern",
+            "Concept",
+            "Rule",
+        )
+        old_type = next((label for label in known_types if label in labels), "Memory")
+
+        history_raw = props.get("reclassify_history", [])
+        if not isinstance(history_raw, list):
+            history_raw = []
+        history: list[dict[str, object]] = []
+        for item in history_raw:
+            normalized = _normalize_reclassify_history_entry(item)
+            if normalized is not None:
+                history.append(normalized)
+        now = time.time()
+        history.append(_reclassify_history_record(old_type, new_type, now))
+
+        updates: dict = {
+            # Neo4j properties cannot store nested maps; keep structured entries
+            # encoded as JSON strings for parity with WM history shape.
+            "reclassify_history": [
+                json.dumps(item, separators=(",", ":")) for item in history
+            ],
+            "reclassified_to": new_type,
+            "reclassified_at": now,
+            "updated_at": now,
+        }
+        details: dict = {
+            "old_type": old_type,
+            "new_type": new_type,
+            "storage": "graph",
+        }
+        if "Derived" in labels:
+            updates["status"] = "dissolved"
+            updates["dissolved_at"] = now
+            updates["dissolved_reason"] = f"reclassified_to_{new_type}"
+            details["lifecycle"] = {"target_status": "dissolved"}
+
+        await session.run(
+            "MATCH (n:Memory {id: $id}) SET n += $updates",
+            id=target_id,
+            updates=updates,
+        )
+
+    if "Derived" in labels:
+        from engramcp.engine.confidence import ConfidenceEngine
+        from engramcp.graph.traceability import SourceTraceability
+
+        confidence_engine = ConfidenceEngine(
+            GraphStore(_graph_driver),
+            SourceTraceability(_graph_driver),
+        )
+        cascade = await confidence_engine.cascade_contest(target_id)
+        details["lifecycle"]["cascade"] = {
+            "affected_nodes": cascade.affected_nodes,
+            "reason": cascade.reason,
+        }
+
+    return details
+
+
 @mcp.tool
 async def send_memory(
     content: str,
@@ -489,8 +666,11 @@ async def correct_memory(
             message=f"Invalid action: {validated.action}",
         )
 
-    # Check target exists
-    if not await wm.exists(validated.target_id):
+    if action_enum in (
+        CorrectionAction.contest,
+        CorrectionAction.annotate,
+        CorrectionAction.split_entity,
+    ) and not await wm.exists(validated.target_id):
         return CorrectMemoryResult(
             target_id=validated.target_id,
             action=action_enum,
@@ -701,6 +881,26 @@ async def correct_memory(
                 message="merge_with must be different from target_id.",
             )
 
+        graph_details = await _merge_entities_in_graph(
+            validated.target_id,
+            merge_payload.merge_with,
+        )
+        if graph_details is not None:
+            await _log_correct_memory_event(
+                {
+                    "target_id": validated.target_id,
+                    "action": action_enum.value,
+                    "status": "applied",
+                    **graph_details,
+                }
+            )
+            return CorrectMemoryResult(
+                target_id=validated.target_id,
+                action=action_enum,
+                status="applied",
+                details=graph_details,
+            )
+
         target = await wm.get(validated.target_id)
         if target is None:
             return CorrectMemoryResult(
@@ -749,6 +949,7 @@ async def correct_memory(
             "merged_into": validated.target_id,
             "merged_from": merge_with.id,
             "confidence": merged.confidence,
+            "storage": "working_memory",
         }
         await _log_correct_memory_event(
             {
@@ -778,6 +979,26 @@ async def correct_memory(
                 message=_validation_message(exc),
             )
 
+        graph_details = await _reclassify_in_graph(
+            validated.target_id,
+            reclass_payload.new_type,
+        )
+        if graph_details is not None:
+            await _log_correct_memory_event(
+                {
+                    "target_id": validated.target_id,
+                    "action": action_enum.value,
+                    "status": "applied",
+                    **graph_details,
+                }
+            )
+            return CorrectMemoryResult(
+                target_id=validated.target_id,
+                action=action_enum,
+                status="applied",
+                details=graph_details,
+            )
+
         target = await wm.get(validated.target_id)
         if target is None:
             return CorrectMemoryResult(
@@ -788,15 +1009,20 @@ async def correct_memory(
 
         old_type = target.type
         updated_properties = dict(target.properties)
-        history = updated_properties.get("reclassify_history", [])
-        if not isinstance(history, list):
-            history = []
+        history_raw = updated_properties.get("reclassify_history", [])
+        if not isinstance(history_raw, list):
+            history_raw = []
+        history: list[dict[str, object]] = []
+        for item in history_raw:
+            normalized = _normalize_reclassify_history_entry(item)
+            if normalized is not None:
+                history.append(normalized)
         history.append(
-            {
-                "from": old_type,
-                "to": reclass_payload.new_type,
-                "at": time.time(),
-            }
+            _reclassify_history_record(
+                old_type,
+                reclass_payload.new_type,
+                time.time(),
+            )
         )
         updated_properties["reclassify_history"] = history
 
@@ -812,6 +1038,7 @@ async def correct_memory(
         details = {
             "old_type": old_type,
             "new_type": reclass_payload.new_type,
+            "storage": "working_memory",
         }
         await _log_correct_memory_event(
             {

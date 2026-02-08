@@ -71,14 +71,14 @@ Three-layer biomimetic memory engine exposed via MCP:
 ```
 Agent → send_memory → [Working Memory] → (async consolidation) → [Neo4j Knowledge Graph]
 Agent → get_memory  → [Retrieval Engine] → Working Memory + Graph traversal → Structured response
-Agent → correct_memory → [WM-first mutations + audit] → (graph-aware path pending)
+Agent → correct_memory → [WM-first mutations + graph-aware merge/reclassify + audit]
 ```
 
 ### Layers (top-down)
 
 | Layer | Module | Description |
 |---|---|---|
-| 7 | `server.py` | MCP interface + consolidation/retrieval assembly/wiring + WM-first correction audit flows (`contest`, `annotate`, `merge_entities`, `split_entity`, `reclassify`) |
+| 7 | `server.py` | MCP interface + consolidation/retrieval assembly/wiring + correction audit flows (WM-first `contest`/`annotate`/`split_entity`, graph-aware `merge_entities` + derived-lifecycle-aware `reclassify`) |
 | 6 | `engine/retrieval.py` | WM-first retrieval, bounded graph-context fallback (`max_depth`), scoring, synthesis, demand-hook emission |
 | 5 | `engine/concepts.py`, `engine/demand.py` | Concept emergence from retrieval demand |
 | 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline, LLM extraction, contradiction detection, abstraction |
