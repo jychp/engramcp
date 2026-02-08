@@ -27,6 +27,7 @@ MANIFEST
 _version.py
 
 # Unit test / coverage reports
+reports/
 htmlcov/
 .tox/
 .nox/

@@ -36,10 +36,6 @@ When exploring external projects for patterns or reference, clone them into `ext
 
 | Document | Description |
 |---|---|
-| [Design Spec](docs/drafts/design-spec.md) | Architecture, MCP interface, ontology, confidence model |
-| [Ontology Schema](docs/drafts/ontology-schema.md) | Neo4j node types, relationships, indexes, constraints |
-| [Action Plan](docs/drafts/action-plan.md) | TDD sprint plan, layer decomposition, repo structure |
-| [Deep Dives](docs/drafts/deep-dives.md) | DD1: Entity Resolution, DD2: get_memory format, DD3: Concept Emergence |
 | [Layer Architecture](docs/design/layer-architecture.md) | 8-layer decomposition, data flows, mock replacement strategy |
 | [MCP Interface](docs/design/mcp-interface.md) | Layer 7 design: 3 tools, Pydantic models, testing strategy, frozen contract |
 | [Working Memory](docs/design/working-memory.md) | Layer 1 design: Redis-backed buffer, MemoryFragment model, keyword search |
@@ -50,6 +46,17 @@ When exploring external projects for patterns or reference, clone them into `ext
 | [Entity Resolution](docs/design/entity-resolution.md) | Layer 4 design: three-level resolver, normalizer, scorer, merge executor, anti-patterns |
 | [Consolidation Pipeline](docs/design/consolidation-pipeline.md) | Layer 4: async trigger wiring, extraction integration, idempotent claim/source consolidation, contradiction detection, and abstraction stages |
 | [Retrieval Engine](docs/design/retrieval.md) | Layer 6 design: WM-first retrieval service, scoring protocol, bounded graph-context fallback (`max_depth`), demand tracking hooks |
+| [Evaluation Scenarios](docs/design/evaluation-scenarios.md) | Tiered eval strategy (Tier 1/2/3), scenario layout under `tests/scenarios/`, markers, and CI/reporting conventions |
+
+### Draft References (Archive / Migration Input)
+
+| Draft | Description |
+|---|---|
+| [Design Spec](docs/drafts/design-spec.md) | Historical architecture draft (reference only) |
+| [Ontology Schema](docs/drafts/ontology-schema.md) | Historical ontology draft (reference only) |
+| [Action Plan](docs/drafts/action-plan.md) | Historical delivery plan (reference only) |
+| [Deep Dives](docs/drafts/deep-dives.md) | Historical deep dives (reference only) |
+| [Evaluation Scenarios Draft](docs/drafts/evaluation-scenarios.md) | Archived scenario ideation; canonical eval guidance now in `docs/design/evaluation-scenarios.md` |
 
 ## Community & Governance Documents
 
@@ -151,17 +158,19 @@ src/engramcp/
 - **Linting**: black, flake8, isort, mypy, pyupgrade (pre-commit)
 - **Async**: pytest-asyncio with `asyncio_mode = "auto"`
 - **Testing**: testcontainers for Neo4j and Redis (session-scoped fixtures)
-- **Pytest markers**: tests are auto-labeled by path (`unit`, `integration`, `scenario`), with `real_llm` reserved for opt-in provider-backed evals
+- **Pytest markers**: tests are auto-labeled by path (`unit`, `integration`, `scenario`); scenario tier markers are explicit (`tier1`, `tier2`, `tier3`); `real_llm` is reserved for opt-in provider-backed evals
 - **Test env loading**: pytest loads root `.env` (via `python-dotenv` in `tests/conftest.py`) for explicit opt-in test flags/credentials
 - **Scenario eval location**: all Tier 1, Tier 2, and Tier 3 evaluation suites must live under `tests/scenarios/` (tests, fixtures, and helpers)
 - **Real-LLM evals**: optional opt-in E2E evals live in `tests/scenarios/test_e2e_real_llm_eval.py` and require explicit environment opt-in + provider credentials
 - **Real-LLM test execution policy**: always ask the user for explicit confirmation before running real-LLM evals (`ENGRAMCP_RUN_REAL_LLM_EVALS=1`), even when `.env` is present and fully configured
+- **Scenario command targets**: use `make test-scenarios` for CI-safe evals (non-`real_llm`), `make test-scenarios-tier2` for curated Tier 2 iteration, and `make test-real-llm-evals` for explicit opt-in provider-backed runs
 - **Confidence**: NATO two-dimensional rating (letter = source reliability, number = credibility)
 - **Confidence on relations, not nodes**: same fact can have different ratings from different sources
 - **MCP errors**: tool responses may include `error_code` and `message` when rejected/errored
 - **LLM provider wiring**: consolidation no longer uses implicit noop fallback; configure explicit `llm_config` provider (or inject `llm_adapter` in code/tests)
 - **Extraction failure policy**: extraction output is schema-validated (`ExtractionResult`) and supports configurable retries for provider errors/invalid JSON/schema validation failures via `ConsolidationConfig` retry fields
 - **Graph retrieval matching**: claim lookup by content uses tokenized query matching (ANY token contained) rather than full-query substring matching
+- **Graph causal traversal query**: causal-chain retrieval filters relationship types at runtime (`type(rel) IN [...]`) to keep behavior stable while avoiding noisy Neo4j unknown-type notifications in sparse graphs/tests
 - **DDD (Domain-Driven Design)**: each domain has bounded contexts with `models/`, `memory/`, `graph/`, `engine/`, `audit/` modules. Domain logic stays in its module; cross-cutting concerns use explicit interfaces.
 - **Domain package structure**: each domain follows `schemas.py` (Pydantic models), `store.py` (DB access), `__init__.py` (business logic + re-exports). External code imports from the domain package (e.g. `from engramcp.memory import MemoryFragment`).
 - **Import-cycle guard**: package re-exports in `graph/__init__.py` use lazy loading (`__getattr__`) to avoid eager cross-domain import cycles during bootstrap/tests.

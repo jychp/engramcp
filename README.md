@@ -202,12 +202,15 @@ EngraMCP follows a layered architecture from MCP interface to storage/consolidat
 - MCP contract: `docs/design/mcp-interface.md`
 - Working memory: `docs/design/working-memory.md`
 - Graph store: `docs/design/graph-store.md`
+- Evaluation tiers and structure: `docs/design/evaluation-scenarios.md`
 
 ## Development
 
 ```bash
 uv run pytest
 uv run pre-commit run --all-files
+make test-scenarios
+make test-scenarios-tier2
 ```
 
 Optional real-LLM end-to-end evals (opt-in, requires API key and may incur cost):

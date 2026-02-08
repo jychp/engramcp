@@ -7,7 +7,16 @@ Structure convention:
 - Fixtures: `tests/scenarios/fixtures/`
 - Scenario helpers/utilities: `tests/scenarios/helpers/` (when needed)
 
+Markers:
+- `scenario` (auto-applied by path)
+- `tier1`, `tier2`, `tier3` for evaluation tier
+- `real_llm` only for provider-backed opt-in runs
+
 Real-LLM evals:
 - `tests/scenarios/test_e2e_real_llm_eval.py`
 - Opt-in only via `ENGRAMCP_RUN_REAL_LLM_EVALS=1` and provider credentials
 - Requires explicit user confirmation before execution in collaborative workflows
+
+CI-safe scenario run:
+- `make test-scenarios` (excludes `real_llm`, emits `reports/pytest-scenarios.xml`)
+- `make test-scenarios-tier2` (runs only Tier 2 non-`real_llm`, emits `reports/pytest-scenarios-tier2.xml`)
