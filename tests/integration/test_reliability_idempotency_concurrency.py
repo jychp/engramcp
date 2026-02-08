@@ -357,7 +357,7 @@ class TestReliabilityIdempotencyConcurrency:
         )
         assert len(sourced_from) == 1
 
-    async def test_partial_extraction_error_keeps_all_fragments_retryable(
+    async def test_partial_extraction_error_with_mutation_clears_batch(
         self,
         partial_batch_fail_client,
         graph_store: GraphStore,
@@ -367,12 +367,13 @@ class TestReliabilityIdempotencyConcurrency:
             await client.call_tool("send_memory", {"content": "Partial batch fact one"})
             await client.call_tool("send_memory", {"content": "Partial batch fact two"})
 
-            async def _wm_still_has_failed_batch() -> bool:
-                return await wm.count() == 2
+            async def _first_batch_cleared() -> bool:
+                return await wm.count() == 0
 
-            assert await _wait_until(_wm_still_has_failed_batch)
+            assert await _wait_until(_first_batch_cleared)
 
             await client.call_tool("send_memory", {"content": "Partial batch fact three"})
+            await client.call_tool("send_memory", {"content": "Partial batch fact four"})
 
         async def _is_empty() -> bool:
             return await wm.count() == 0
@@ -385,8 +386,10 @@ class TestReliabilityIdempotencyConcurrency:
             for node in claims
             if str(getattr(node, "content", "")).startswith("Partial batch fact")
         ]
-        assert sorted(contents) == [
-            "Partial batch fact one",
-            "Partial batch fact three",
-            "Partial batch fact two",
-        ]
+        assert len(contents) == 3
+        assert "Partial batch fact three" in contents
+        assert "Partial batch fact four" in contents
+        assert (
+            "Partial batch fact one" in contents
+            or "Partial batch fact two" in contents
+        )
