@@ -12,6 +12,8 @@ from neo4j import AsyncGraphDatabase
 from pydantic import ValidationError
 from redis.asyncio import Redis  # type: ignore[import-untyped]
 
+from engramcp.audit import AuditEvent
+from engramcp.audit import AuditEventType
 from engramcp.audit import AuditLogger
 from engramcp.config import AuditConfig
 from engramcp.config import ConsolidationConfig
@@ -21,7 +23,7 @@ from engramcp.engine import ConsolidationPipeline
 from engramcp.engine import ExtractionEngine
 from engramcp.engine import LLMAdapter
 from engramcp.engine import QueryDemandTracker
-from engramcp.engine import QueryPattern
+from engramcp.engine import RetrievalEngine
 from engramcp.graph import EntityResolver
 from engramcp.graph import GraphStore
 from engramcp.graph import init_schema
@@ -34,11 +36,10 @@ from engramcp.models.schemas import CorrectMemoryInput
 from engramcp.models.schemas import CorrectMemoryResult
 from engramcp.models.schemas import GetMemoryInput
 from engramcp.models.schemas import GetMemoryResult
-from engramcp.models.schemas import MemoryEntry
 from engramcp.models.schemas import MetaInfo
 from engramcp.models.schemas import SendMemoryInput
 from engramcp.models.schemas import SendMemoryResult
-from engramcp.models.schemas import SourceEntry
+from engramcp.models.schemas import SplitEntityPayload
 
 mcp = FastMCP("EngraMCP")
 
@@ -49,8 +50,8 @@ mcp = FastMCP("EngraMCP")
 _wm: WorkingMemory | None = None
 _graph_driver: AsyncDriver | None = None
 _consolidation_pipeline: ConsolidationPipeline | None = None
-_query_demand_tracker: QueryDemandTracker = QueryDemandTracker()
-_concept_registry: ConceptRegistry = ConceptRegistry()
+_retrieval_engine: RetrievalEngine | None = None
+_audit_logger: AuditLogger | None = None
 
 
 class _NoopLLMAdapter(LLMAdapter):
@@ -100,13 +101,15 @@ async def configure(
 
     Must be called before the MCP tools can function.
     """
-    global _wm, _graph_driver, _consolidation_pipeline, _query_demand_tracker, _concept_registry
+    global _wm, _graph_driver, _consolidation_pipeline, _retrieval_engine, _audit_logger
     if _wm is not None:
         await _wm.close()
     if _graph_driver is not None:
         await _graph_driver.close()
         _graph_driver = None
         _consolidation_pipeline = None
+
+    _audit_logger = AuditLogger(audit_config or AuditConfig())
 
     consolidation_callback = on_flush
     threshold = flush_threshold
@@ -125,13 +128,12 @@ async def configure(
         )
         resolver = EntityResolver(config=entity_resolution_config)
         merger = MergeExecutor(graph_store)
-        audit_logger = AuditLogger(audit_config or AuditConfig())
         _consolidation_pipeline = ConsolidationPipeline(
             extraction_engine=extraction_engine,
             entity_resolver=resolver,
             merge_executor=merger,
             graph_store=graph_store,
-            audit_logger=audit_logger,
+            audit_logger=_audit_logger,
             config=cfg,
         )
         consolidation_callback = _run_consolidation
@@ -146,13 +148,19 @@ async def configure(
         flush_threshold=threshold,
         on_flush=consolidation_callback,
     )
-    _query_demand_tracker = QueryDemandTracker()
-    _concept_registry = ConceptRegistry()
+    _retrieval_engine = RetrievalEngine(
+        _wm,
+        graph_retriever=(
+            GraphStore(_graph_driver) if _graph_driver is not None else None
+        ),
+        demand_tracker=QueryDemandTracker(),
+        concept_registry=ConceptRegistry(),
+    )
 
 
 async def shutdown() -> None:
     """Close backend clients and release server resources."""
-    global _wm, _graph_driver, _consolidation_pipeline, _query_demand_tracker, _concept_registry
+    global _wm, _graph_driver, _consolidation_pipeline, _retrieval_engine, _audit_logger
     if _wm is not None:
         await _wm.close()
         _wm = None
@@ -160,8 +168,8 @@ async def shutdown() -> None:
         await _graph_driver.close()
         _graph_driver = None
     _consolidation_pipeline = None
-    _query_demand_tracker = QueryDemandTracker()
-    _concept_registry = ConceptRegistry()
+    _retrieval_engine = None
+    _audit_logger = None
 
 
 async def _reset_working_memory() -> None:
@@ -183,38 +191,18 @@ def _get_query_demand_count(
     properties: list[str] | None = None,
 ) -> int:
     """Return tracked count for a normalized retrieval shape (test helper)."""
-    pattern = QueryPattern.from_parts(node_types=node_types, properties=properties)
-    return _query_demand_tracker.count(pattern)
+    if _retrieval_engine is None:
+        return 0
+    return _retrieval_engine.query_demand_count(
+        node_types=node_types, properties=properties
+    )
 
 
 def _get_concept_candidate_count() -> int:
     """Return current number of tracked concept candidates (test helper)."""
-    return _concept_registry.candidate_count()
-
-
-def _record_retrieval_shape(
-    *,
-    matches: list[MemoryFragment],
-    compact: bool,
-    include_sources: bool,
-    include_contradictions: bool,
-) -> None:
-    """Track retrieval call shape from observed types and selected fields."""
-    node_types = [m.dynamic_type or m.type for m in matches]
-    properties = ["content", "confidence", "min_confidence"]
-
-    if not compact:
-        properties.extend(["participants", "causal_chain"])
-        if include_sources:
-            properties.append("sources")
-    if include_contradictions:
-        properties.append("contradictions")
-
-    signal = _query_demand_tracker.record_call(
-        node_types=node_types, properties=properties
-    )
-    if signal is not None:
-        _concept_registry.observe_signal(signal)
+    if _retrieval_engine is None:
+        return 0
+    return _retrieval_engine.concept_candidate_count()
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +268,15 @@ def _correct_rejected(
         error_code=error_code,
         message=message,
         details={},
+    )
+
+
+async def _log_correct_memory_event(payload: dict) -> None:
+    """Write a CORRECT_MEMORY audit event when audit logging is configured."""
+    if _audit_logger is None:
+        return
+    await _audit_logger.log(
+        AuditEvent(event_type=AuditEventType.CORRECT_MEMORY, payload=payload)
     )
 
 
@@ -356,7 +353,7 @@ async def get_memory(
         limit: Max memories returned.
         compact: Compact mode — omit sources, chains, participants.
     """
-    wm = _get_wm()
+    _get_wm()
     try:
         validated = GetMemoryInput.model_validate(
             {
@@ -378,54 +375,16 @@ async def get_memory(
             message=_validation_message(exc),
         )
 
-    matches = await wm.search(validated.query, min_confidence=validated.min_confidence)
-    _record_retrieval_shape(
-        matches=matches,
-        compact=validated.compact,
-        include_sources=validated.include_sources,
-        include_contradictions=validated.include_contradictions,
-    )
-
-    total_found = len(matches)
-    truncated = total_found > validated.limit
-    matches = matches[: validated.limit]
-
-    memories: list[MemoryEntry] = []
-    for m in matches:
-        sources = []
-        if not validated.compact and validated.include_sources and m.sources:
-            sources = [SourceEntry(**s) for s in m.sources]
-
-        memories.append(
-            MemoryEntry(
-                id=m.id,
-                type=m.type,
-                dynamic_type=m.dynamic_type,
-                content=m.content,
-                confidence=m.confidence,
-                properties=m.properties,
-                participants=[] if validated.compact else m.participants,
-                causal_chain=[] if validated.compact else m.causal_chain,
-                sources=sources,
-            )
+    if _retrieval_engine is None:
+        return _get_error(
+            query=validated.query,
+            max_depth=validated.max_depth,
+            min_confidence=validated.min_confidence,
+            error_code="retrieval_engine_not_configured",
+            message="Retrieval engine not configured. Call configure() first.",
         )
 
-    meta = MetaInfo(
-        query=validated.query,
-        total_found=total_found,
-        returned=len(memories),
-        truncated=truncated,
-        max_depth_used=validated.max_depth,
-        min_confidence_applied=validated.min_confidence,
-        working_memory_hits=len(memories),
-        graph_hits=0,
-    )
-
-    return GetMemoryResult(
-        memories=memories,
-        contradictions=[],
-        meta=meta,
-    )
+    return await _retrieval_engine.retrieve(validated)
 
 
 @mcp.tool
@@ -474,6 +433,74 @@ async def correct_memory(
             target_id=validated.target_id,
             action=action_enum,
             status="not_found",
+        )
+
+    if action_enum == CorrectionAction.split_entity:
+        try:
+            split_payload = SplitEntityPayload.model_validate(validated.payload or {})
+        except ValidationError as exc:
+            return _correct_rejected(
+                validated.target_id,
+                action=action_enum,
+                error_code="validation_error",
+                message=_validation_message(exc),
+            )
+        if not split_payload.split_into:
+            return _correct_rejected(
+                validated.target_id,
+                action=action_enum,
+                error_code="validation_error",
+                message="split_into must contain at least one item.",
+            )
+
+        target = await wm.get(validated.target_id)
+        if target is None:
+            return CorrectMemoryResult(
+                target_id=validated.target_id,
+                action=action_enum,
+                status="not_found",
+            )
+
+        source_input: dict | None = None
+        if target.sources:
+            source = target.sources[0]
+            source_input = {
+                "type": source.get("type"),
+                "ref": source.get("ref"),
+                "citation": source.get("citation"),
+            }
+        confidence_hint = target.confidence[0] if target.confidence else None
+
+        created_memory_ids: list[str] = []
+        for split_item in split_payload.split_into:
+            fragment = create_memory_fragment(
+                content=split_item,
+                source=source_input,
+                confidence_hint=confidence_hint,
+                agent_id=target.agent_id,
+            )
+            await wm.store(fragment)
+            created_memory_ids.append(fragment.id)
+
+        await wm.delete(validated.target_id)
+        split_details = {
+            "split_into": split_payload.split_into,
+            "created_memory_ids": created_memory_ids,
+        }
+        await _log_correct_memory_event(
+            {
+                "target_id": validated.target_id,
+                "action": action_enum.value,
+                "status": "applied",
+                "created_memory_ids": created_memory_ids,
+                "split_into": split_payload.split_into,
+            }
+        )
+        return CorrectMemoryResult(
+            target_id=validated.target_id,
+            action=action_enum,
+            status="applied",
+            details=split_details,
         )
 
     # Mock: apply correction (real logic in later sprints)

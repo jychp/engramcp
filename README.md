@@ -48,6 +48,7 @@ Current implemented foundation includes:
 - Neo4j graph store and schema initialization
 - Consolidation pipeline and extraction engine scaffolding
 - Layer 5 concept-emergence bootstrap (query-demand tracking + concept candidate registry)
+- Layer 6 retrieval foundation (`engine/retrieval.py`) with WM-first service, scoring interface, and graph fallback stub
 - Confidence engine with propagation logic
 - Security and quality workflows in CI
 - Uniform MCP validation and error response fields (`error_code`, `message`)

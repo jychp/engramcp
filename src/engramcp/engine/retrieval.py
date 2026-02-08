@@ -1,0 +1,215 @@
+"""Retrieval engine (Layer 6) with WM-first strategy and graph fallback stub."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Protocol
+
+from engramcp.engine.concepts import ConceptRegistry
+from engramcp.engine.demand import QueryDemandTracker
+from engramcp.engine.demand import QueryPattern
+from engramcp.memory.schemas import MemoryFragment
+from engramcp.memory.store import WorkingMemory
+from engramcp.models.schemas import GetMemoryInput
+from engramcp.models.schemas import GetMemoryResult
+from engramcp.models.schemas import MemoryEntry
+from engramcp.models.schemas import MetaInfo
+from engramcp.models.schemas import SourceEntry
+
+
+class RetrievalScorer(Protocol):
+    """Scores retrieval candidates for ranking."""
+
+    def score_working_memory(self, fragment: MemoryFragment) -> float:
+        """Return a sortable score for a working-memory fragment."""
+
+    def score_graph_memory(self, memory: MemoryEntry) -> float:
+        """Return a sortable score for a graph-backed memory entry."""
+
+
+class GraphRetriever(Protocol):
+    """Minimal graph retrieval protocol used by Layer 6."""
+
+    async def find_claim_nodes(self) -> Sequence[object]:
+        """Return claim-like nodes as a fallback retrieval source."""
+
+
+@dataclass(frozen=True)
+class RecencyConfidenceScorer:
+    """Default scorer combining recency and NATO confidence quality."""
+
+    def score_working_memory(self, fragment: MemoryFragment) -> float:
+        confidence_bonus = _confidence_bonus(fragment.confidence)
+        return fragment.timestamp + confidence_bonus
+
+    def score_graph_memory(self, memory: MemoryEntry) -> float:
+        # No recency signal is currently available for graph fallback stubs.
+        return _confidence_bonus(memory.confidence)
+
+
+class RetrievalEngine:
+    """Layer 6 retrieval service with WM-first and graph fallback behavior."""
+
+    def __init__(
+        self,
+        working_memory: WorkingMemory,
+        *,
+        graph_retriever: GraphRetriever | None = None,
+        scorer: RetrievalScorer | None = None,
+        demand_tracker: QueryDemandTracker | None = None,
+        concept_registry: ConceptRegistry | None = None,
+    ) -> None:
+        self._wm = working_memory
+        self._graph = graph_retriever
+        self._scorer = scorer or RecencyConfidenceScorer()
+        self._demand_tracker = demand_tracker or QueryDemandTracker()
+        self._concept_registry = concept_registry or ConceptRegistry()
+
+    async def retrieve(self, request: GetMemoryInput) -> GetMemoryResult:
+        """Retrieve memories using WM-first selection with graph fallback."""
+        wm_matches = await self._wm.search(
+            request.query, min_confidence=request.min_confidence
+        )
+        self._record_retrieval_shape(
+            matches=wm_matches,
+            compact=request.compact,
+            include_sources=request.include_sources,
+            include_contradictions=request.include_contradictions,
+        )
+
+        wm_matches.sort(key=self._scorer.score_working_memory, reverse=True)
+        graph_matches: list[MemoryEntry] = []
+        if not wm_matches:
+            graph_matches = await self._search_graph_stub(request)
+            graph_matches.sort(key=self._scorer.score_graph_memory, reverse=True)
+
+        total_found = len(wm_matches) + len(graph_matches)
+        truncated = total_found > request.limit
+
+        selected_wm = wm_matches[: request.limit]
+        memories = [
+            self._to_memory_entry(fragment, request) for fragment in selected_wm
+        ]
+        remaining = request.limit - len(memories)
+        if remaining > 0 and graph_matches:
+            memories.extend(graph_matches[:remaining])
+
+        meta = MetaInfo(
+            query=request.query,
+            total_found=total_found,
+            returned=len(memories),
+            truncated=truncated,
+            max_depth_used=request.max_depth,
+            min_confidence_applied=request.min_confidence,
+            working_memory_hits=len(selected_wm),
+            graph_hits=min(len(graph_matches), max(remaining, 0)),
+        )
+        return GetMemoryResult(
+            memories=memories,
+            contradictions=[],
+            meta=meta,
+        )
+
+    def query_demand_count(
+        self,
+        *,
+        node_types: Sequence[str] | None = None,
+        properties: Sequence[str] | None = None,
+    ) -> int:
+        """Expose current demand count for a normalized retrieval shape."""
+        pattern = QueryPattern.from_parts(node_types=node_types, properties=properties)
+        return self._demand_tracker.count(pattern)
+
+    def concept_candidate_count(self) -> int:
+        """Expose current concept-candidate count (for tests/introspection)."""
+        return self._concept_registry.candidate_count()
+
+    def _record_retrieval_shape(
+        self,
+        *,
+        matches: list[MemoryFragment],
+        compact: bool,
+        include_sources: bool,
+        include_contradictions: bool,
+    ) -> None:
+        node_types = [m.dynamic_type or m.type for m in matches]
+        properties = ["content", "confidence", "min_confidence"]
+
+        if not compact:
+            properties.extend(["participants", "causal_chain"])
+            if include_sources:
+                properties.append("sources")
+        if include_contradictions:
+            properties.append("contradictions")
+
+        signal = self._demand_tracker.record_call(
+            node_types=node_types, properties=properties
+        )
+        if signal is not None:
+            self._concept_registry.observe_signal(signal)
+
+    async def _search_graph_stub(self, request: GetMemoryInput) -> list[MemoryEntry]:
+        """Fallback traversal placeholder until graph retrieval is implemented."""
+        if self._graph is None:
+            return []
+
+        nodes = await self._graph.find_claim_nodes()
+        entries: list[MemoryEntry] = []
+        for node in nodes:
+            node_id = getattr(node, "id", None)
+            content = getattr(node, "content", None)
+            if not node_id or not content:
+                continue
+
+            entries.append(
+                MemoryEntry(
+                    id=node_id,
+                    type=type(node).__name__,
+                    dynamic_type=None,
+                    content=content,
+                    confidence=None,
+                    properties={},
+                    participants=[] if request.compact else [],
+                    causal_chain=[] if request.compact else [],
+                    sources=[],
+                )
+            )
+        return entries
+
+    def _to_memory_entry(
+        self, fragment: MemoryFragment, request: GetMemoryInput
+    ) -> MemoryEntry:
+        sources = []
+        if not request.compact and request.include_sources and fragment.sources:
+            sources = [SourceEntry(**source) for source in fragment.sources]
+
+        return MemoryEntry(
+            id=fragment.id,
+            type=fragment.type,
+            dynamic_type=fragment.dynamic_type,
+            content=fragment.content,
+            confidence=fragment.confidence,
+            properties=fragment.properties,
+            participants=[] if request.compact else fragment.participants,
+            causal_chain=[] if request.compact else fragment.causal_chain,
+            sources=sources,
+        )
+
+
+def _confidence_bonus(confidence: str | None) -> float:
+    """Convert NATO confidence text into a tiny bonus for stable sorting."""
+    if not confidence or len(confidence) < 2:
+        return 0.0
+
+    letter = confidence[0].upper()
+    number = confidence[1:]
+    letters = "ABCDEF"
+
+    try:
+        letter_quality = (len(letters) - letters.index(letter)) / 10_000
+        number_quality = (7 - int(number)) / 100_000
+    except (ValueError, IndexError):
+        return 0.0
+
+    return letter_quality + number_quality

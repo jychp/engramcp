@@ -10,7 +10,7 @@
 
 The MCP interface is the only entry point for agents interacting with EngraMCP. It exposes three tools via FastMCP v2: **write**, **read**, and **correct**.
 
-The interface is wired to the Redis-backed `WorkingMemory` domain. `get_memory` currently serves working-memory matches; graph traversal is planned in Layer 6.
+The interface is wired to the Redis-backed `WorkingMemory` domain. `get_memory` delegates retrieval/synthesis to Layer 6 (`engine/retrieval.py`) with WM-first behavior and graph fallback stub.
 
 ---
 
@@ -90,7 +90,8 @@ FastMCP v2 serializes Pydantic models automatically via `pydantic_core.to_jsonab
 - Validates input with `CorrectMemoryInput`
 - Validates `action` against `CorrectionAction` enum
 - Returns `status: "not_found"` if `target_id` doesn't exist
-- Returns `status: "applied"` on success (mock — real cascading logic when the Confidence Engine layer is implemented)
+- Implements `split_entity`: validates `SplitEntityPayload`, creates split child memories, deletes original target, and writes a `CORRECT_MEMORY` audit event
+- Returns `status: "applied"` on success for other actions (stub for future graph/cascade behavior)
 
 ### Error response contract
 
@@ -130,6 +131,6 @@ All tests use `fastmcp.Client(mcp)` — no direct function calls.
 
 ## Future Changes
 
-- `get_memory` working-memory keyword retrieval replaced by `engine/retrieval.py` (graph traversal, scoring)
+- Expand Layer 6 retrieval from fallback stub to full graph traversal and contradiction-aware synthesis
 - `correct_memory` stub replaced by real confidence cascade via `engine/confidence.py`
 - Tool signatures and response shapes are **frozen** — additive fields only without version bump
