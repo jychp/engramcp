@@ -365,7 +365,11 @@ def _normalize_reclassify_history_entry(entry: object) -> dict[str, object] | No
         at = entry.get("at")
         if src is None or dst is None:
             return None
-        return {"from": str(src), "to": str(dst), "at": float(at or 0.0)}
+        try:
+            at_value = float(at or 0.0)
+        except (TypeError, ValueError):
+            at_value = 0.0
+        return {"from": str(src), "to": str(dst), "at": at_value}
 
     if isinstance(entry, str):
         # Preferred graph representation: JSON string entry

@@ -483,3 +483,47 @@ class TestCorrectMemoryActions:
         assert decoded["from"] == "Pattern"
         assert decoded["to"] == "Coincidence"
         assert isinstance(decoded["at"], float)
+
+    async def test_reclassify_tolerates_malformed_history_at_value(
+        self,
+        graph_split_client,
+        graph_store: GraphStore,
+    ):
+        client, _ = graph_split_client
+        pattern = Pattern(content="Legacy malformed history", derivation_run_id="run-legacy")
+        await graph_store.create_node(pattern)
+
+        driver = graph_store._driver
+        async with driver.session() as session:
+            await session.run(
+                "MATCH (n:Memory {id: $id}) "
+                "SET n.reclassify_history = ['{\"from\":\"Pattern\",\"to\":\"Noise\",\"at\":\"oops\"}']",
+                id=pattern.id,
+            )
+
+        result = await client.call_tool(
+            "correct_memory",
+            {
+                "target_id": pattern.id,
+                "action": "reclassify",
+                "payload": {"new_type": "Coincidence"},
+            },
+        )
+        data = _parse(result)
+        assert data["status"] == "applied"
+
+        async with driver.session() as session:
+            fetch = await session.run(
+                "MATCH (n:Memory {id: $id}) RETURN n.reclassify_history AS history",
+                id=pattern.id,
+            )
+            record = await fetch.single()
+            assert record is not None
+            history = record["history"]
+
+        assert isinstance(history, list)
+        assert len(history) >= 2
+        legacy = json.loads(history[0])
+        assert legacy["from"] == "Pattern"
+        assert legacy["to"] == "Noise"
+        assert legacy["at"] == 0.0
