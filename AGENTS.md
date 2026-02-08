@@ -46,9 +46,9 @@ When exploring external projects for patterns or reference, clone them into `ext
 | [Graph Store](docs/design/graph-store.md) | Layer 0+2 design: Neo4j CRUD, node/relation models, schema init, query methods |
 | [Confidence Engine](docs/design/confidence-engine.md) | Layer 3 design: source traceability, independence detection, NATO confidence, propagation |
 | [Config & Audit](docs/design/config-audit.md) | Config dataclasses, async JSONL audit logger, AuditEventType enum |
-| [Extraction](docs/design/extraction.md) | Layer 4 partial: LLMAdapter protocol, ExtractionEngine, prompt builder, extraction schemas |
-| [Entity Resolution](docs/design/entity-resolution.md) | Layer 4 partial: three-level resolver, normalizer, scorer, merge executor, anti-patterns |
-| [Consolidation Pipeline](docs/design/consolidation-pipeline.md) | Layer 4: pipeline orchestrator, entity-to-node mapping, claim integration, source traceability |
+| [Extraction](docs/design/extraction.md) | Layer 4 design: LLMAdapter protocol, ExtractionEngine, prompt builder, extraction schemas |
+| [Entity Resolution](docs/design/entity-resolution.md) | Layer 4 design: three-level resolver, normalizer, scorer, merge executor, anti-patterns |
+| [Consolidation Pipeline](docs/design/consolidation-pipeline.md) | Layer 4: async trigger wiring, extraction integration, contradiction detection, and abstraction stages |
 
 ## Community & Governance Documents
 
@@ -77,14 +77,14 @@ Agent → correct_memory → [Graph mutations + cascade]
 
 | Layer | Module | Description |
 |---|---|---|
-| 7 | `server.py` | MCP Interface (send_memory, get_memory, correct_memory) |
-| 6 | *(planned)* `engine/retrieval.py` | Graph traversal, scoring, synthesis |
-| 5 | *(planned)* `engine/concepts.py`, `engine/demand.py` | Concept emergence from retrieval demand |
-| 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline (✅), LLM extraction (✅) |
-| 3 | `engine/confidence.py` | NATO rating, propagation, corroboration (✅) |
-| 2 | `graph/store.py`, `graph/schema.py` | Neo4j CRUD, ontology, constraints (✅) |
-| 1 | `memory/store.py` | Redis-backed buffer, TTL, keyword search (✅) |
-| 0 | `models/` | Schema, indexes, constraints definitions (✅) |
+| 7 | `server.py` | MCP interface + consolidation assembly/wiring (send_memory, get_memory, correct_memory) |
+| 6 | `engine/retrieval.py` | Graph traversal, scoring, synthesis |
+| 5 | `engine/concepts.py`, `engine/demand.py` | Concept emergence from retrieval demand |
+| 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline, LLM extraction, contradiction detection, abstraction |
+| 3 | `engine/confidence.py` | NATO rating, propagation, corroboration |
+| 2 | `graph/store.py`, `graph/schema.py` | Neo4j CRUD, ontology, constraints |
+| 1 | `memory/store.py` | Redis-backed buffer, TTL, keyword search |
+| 0 | `models/` | Schema, indexes, constraints definitions |
 
 ### Stack
 
@@ -104,36 +104,36 @@ Agent → correct_memory → [Graph mutations + cascade]
 ```
 src/engramcp/
 ├── __init__.py
-├── server.py               # FastMCP server, 3 tools (✅)
-├── config.py               # LLM, consolidation, entity resolution, audit config (✅)
+├── server.py               # FastMCP server, 3 tools
+├── config.py               # LLM, consolidation, entity resolution, audit config
 ├── models/                 # Shared data models
-│   ├── __init__.py         # Agent fingerprinting + domain logic + re-exports (✅)
-│   ├── schemas.py          # Pydantic input/output schemas for MCP tools (✅)
-│   ├── nodes.py            # 11 node type models + LABEL_TO_MODEL mapping (✅)
-│   ├── relations.py        # 18 relationship type models (✅)
-│   └── confidence.py       # NATORating, Reliability, Credibility + helpers (✅)
+│   ├── __init__.py         # Agent fingerprinting + domain logic + re-exports
+│   ├── schemas.py          # Pydantic input/output schemas for MCP tools
+│   ├── nodes.py            # 11 node type models + LABEL_TO_MODEL mapping
+│   ├── relations.py        # 18 relationship type models
+│   └── confidence.py       # NATORating, Reliability, Credibility + helpers
 ├── memory/                 # Working memory
-│   ├── __init__.py         # Domain API, re-exports (✅)
-│   ├── schemas.py          # MemoryFragment model (✅)
-│   └── store.py            # Redis-backed buffer, keyword search (✅)
+│   ├── __init__.py         # Domain API, re-exports
+│   ├── schemas.py          # MemoryFragment model
+│   └── store.py            # Redis-backed buffer, keyword search, non-blocking flush callback
 ├── graph/                  # Neo4j layer
-│   ├── __init__.py         # Re-exports GraphStore, SourceTraceability, init_schema (✅)
-│   ├── store.py            # CRUD operations + query methods (✅)
-│   ├── schema.py           # Index/constraint init (✅)
-│   ├── entity_resolution.py # Three-level entity resolution (✅)
-│   └── traceability.py     # Source chain traversal, independence detection (✅)
+│   ├── __init__.py         # Re-exports GraphStore, SourceTraceability, init_schema
+│   ├── store.py            # CRUD operations + query methods
+│   ├── schema.py           # Index/constraint init
+│   ├── entity_resolution.py # Three-level entity resolution
+│   └── traceability.py     # Source chain traversal, independence detection
 ├── engine/                 # Processing engines (Layers 3-6)
-│   ├── __init__.py         # Re-exports ConfidenceEngine, ExtractionEngine, etc. (✅)
-│   ├── confidence.py       # Confidence calculation & propagation (✅)
-│   ├── schemas.py          # Extraction result models (✅)
-│   ├── extraction.py       # LLMAdapter protocol + ExtractionEngine (✅)
-│   ├── prompt_builder.py   # Dynamic extraction prompt (✅)
-│   ├── consolidation.py    # Consolidation pipeline orchestrator (✅)
-│   └── (Layer 5/6 modules planned) # concepts.py, demand.py, retrieval.py
-└── audit/                  # Audit logging (✅)
-    ├── __init__.py         # Re-exports AuditLogger, AuditEvent, AuditEventType (✅)
-    ├── schemas.py          # AuditEventType enum + AuditEvent model (✅)
-    └── store.py            # Async JSONL audit logger (✅)
+│   ├── __init__.py         # Re-exports ConfidenceEngine, ExtractionEngine, etc.
+│   ├── confidence.py       # Confidence calculation & propagation
+│   ├── schemas.py          # Extraction result models
+│   ├── extraction.py       # LLMAdapter protocol + ExtractionEngine
+│   ├── prompt_builder.py   # Dynamic extraction prompt
+│   ├── consolidation.py    # Consolidation pipeline orchestrator + contradiction/abstraction stages
+│   └── future modules      # concepts.py, demand.py, retrieval.py
+└── audit/                  # Audit logging
+    ├── __init__.py         # Re-exports AuditLogger, AuditEvent, AuditEventType
+    ├── schemas.py          # AuditEventType enum + AuditEvent model
+    └── store.py            # Async JSONL audit logger
 ```
 
 ---

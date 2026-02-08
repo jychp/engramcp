@@ -7,11 +7,25 @@ search.  Call ``configure(redis_url=...)`` before using the server.
 from __future__ import annotations
 
 from fastmcp import FastMCP
+from neo4j import AsyncDriver
+from neo4j import AsyncGraphDatabase
 from pydantic import ValidationError
 from redis.asyncio import Redis  # type: ignore[import-untyped]
 
+from engramcp.audit import AuditLogger
+from engramcp.config import AuditConfig
+from engramcp.config import ConsolidationConfig
+from engramcp.config import EntityResolutionConfig
+from engramcp.engine import ConsolidationPipeline
+from engramcp.engine import ExtractionEngine
+from engramcp.engine import LLMAdapter
+from engramcp.graph import EntityResolver
+from engramcp.graph import GraphStore
+from engramcp.graph import init_schema
+from engramcp.graph import MergeExecutor
 from engramcp.memory import create_memory_fragment
 from engramcp.memory import WorkingMemory
+from engramcp.memory.schemas import MemoryFragment
 from engramcp.models.schemas import CorrectionAction
 from engramcp.models.schemas import CorrectMemoryInput
 from engramcp.models.schemas import CorrectMemoryResult
@@ -30,6 +44,38 @@ mcp = FastMCP("EngraMCP")
 # ---------------------------------------------------------------------------
 
 _wm: WorkingMemory | None = None
+_graph_driver: AsyncDriver | None = None
+_consolidation_pipeline: ConsolidationPipeline | None = None
+
+
+class _NoopLLMAdapter(LLMAdapter):
+    """Fallback LLM adapter returning an empty extraction payload."""
+
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        temperature: float = 0.2,
+        max_tokens: int = 4096,
+        timeout_seconds: float = 30.0,
+    ) -> str:
+        del prompt, temperature, max_tokens, timeout_seconds
+        return (
+            '{"entities":[],"relations":[],"claims":[],'
+            '"fragment_ids_processed":[],"errors":[]}'
+        )
+
+
+async def _run_consolidation(fragments: list[MemoryFragment]) -> None:
+    """Run one consolidation pass and clear processed fragments from working memory."""
+    pipeline = _consolidation_pipeline
+    wm = _wm
+    if pipeline is None or wm is None or not fragments:
+        return
+
+    await pipeline.run(fragments)
+    for fragment in fragments:
+        await wm.delete(fragment.id)
 
 
 async def configure(
@@ -39,30 +85,74 @@ async def configure(
     max_size: int = 1000,
     flush_threshold: int | None = None,
     on_flush=None,
+    enable_consolidation: bool = False,
+    neo4j_url: str | None = None,
+    consolidation_config: ConsolidationConfig | None = None,
+    entity_resolution_config: EntityResolutionConfig | None = None,
+    audit_config: AuditConfig | None = None,
 ) -> None:
     """Initialize the working memory backend.
 
     Must be called before the MCP tools can function.
     """
-    global _wm
+    global _wm, _graph_driver, _consolidation_pipeline
     if _wm is not None:
         await _wm.close()
+    if _graph_driver is not None:
+        await _graph_driver.close()
+        _graph_driver = None
+        _consolidation_pipeline = None
+
+    consolidation_callback = on_flush
+    threshold = flush_threshold
+    if enable_consolidation:
+        if neo4j_url is None:
+            raise ValueError("neo4j_url is required when enable_consolidation=True")
+
+        cfg = consolidation_config or ConsolidationConfig()
+        _graph_driver = AsyncGraphDatabase.driver(neo4j_url)
+        await init_schema(_graph_driver)
+
+        graph_store = GraphStore(_graph_driver)
+        extraction_engine = ExtractionEngine(
+            llm=_NoopLLMAdapter(),
+            consolidation_config=cfg,
+        )
+        resolver = EntityResolver(config=entity_resolution_config)
+        merger = MergeExecutor(graph_store)
+        audit_logger = AuditLogger(audit_config or AuditConfig())
+        _consolidation_pipeline = ConsolidationPipeline(
+            extraction_engine=extraction_engine,
+            entity_resolver=resolver,
+            merge_executor=merger,
+            graph_store=graph_store,
+            audit_logger=audit_logger,
+            config=cfg,
+        )
+        consolidation_callback = _run_consolidation
+        if threshold is None:
+            threshold = cfg.fragment_threshold
+
     client = Redis.from_url(redis_url)
     _wm = WorkingMemory(
         client,
         ttl=ttl,
         max_size=max_size,
-        flush_threshold=flush_threshold,
-        on_flush=on_flush,
+        flush_threshold=threshold,
+        on_flush=consolidation_callback,
     )
 
 
 async def shutdown() -> None:
     """Close backend clients and release server resources."""
-    global _wm
+    global _wm, _graph_driver, _consolidation_pipeline
     if _wm is not None:
         await _wm.close()
         _wm = None
+    if _graph_driver is not None:
+        await _graph_driver.close()
+        _graph_driver = None
+    _consolidation_pipeline = None
 
 
 async def _reset_working_memory() -> None:

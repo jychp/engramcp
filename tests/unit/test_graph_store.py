@@ -411,6 +411,24 @@ class TestQueries:
         results = await graph_store.find_sources_by_reliability(Reliability.A)
         assert len(results) == 2
 
+    async def test_find_claim_nodes(self, graph_store):
+        fact = Fact(content="Claim fact")
+        event = Event(
+            content="Claim event",
+            occurred_at=datetime(2024, 6, 1, tzinfo=timezone.utc),
+        )
+        source = Source(type="report", reliability=Reliability.B)
+
+        await graph_store.create_node(fact)
+        await graph_store.create_node(event)
+        await graph_store.create_node(source)
+
+        results = await graph_store.find_claim_nodes()
+        ids = {node.id for node in results}
+        assert fact.id in ids
+        assert event.id in ids
+        assert source.id not in ids
+
     async def test_find_contradictions_unresolved(self, graph_store):
         f1 = Fact(content="Claim A")
         f2 = Fact(content="Claim B")

@@ -99,14 +99,33 @@ Relations are skipped (with error logged) when:
 - The relation type is unknown
 - Property validation fails
 
-### 7. Audit
+### 7. Detect Contradictions
+
+New claims are compared against existing graph claims with a lightweight
+polarity heuristic. When opposite polarity is detected for the same normalized
+claim base, the pipeline creates a `CONTRADICTS` relationship with
+`resolution_status=unresolved`.
+
+### 8. Run Abstraction
+
+The pipeline performs a first abstraction pass:
+
+1. Group repeated claims by normalized content
+2. Create `Pattern` nodes for groups crossing `pattern_min_occurrences`
+3. Create `Concept` when multiple patterns emerge in the run
+4. Create `Rule` when causal signals (`CAUSED_BY` / `LEADS_TO`) exist
+
+Each derived node is linked through `DERIVED_FROM`, `GENERALIZES`, and
+`INSTANCE_OF` relationships.
+
+### 9. Audit
 
 Log events via `AuditLogger`:
 - `CONSOLIDATION_RUN` — summary of the entire run
 - `NODE_CREATED` — for each node created
 - `RELATION_CREATED` — for each relationship created
 
-### 8. Return Result
+### 10. Return Result
 
 ```python
 @dataclass
@@ -118,6 +137,10 @@ class ConsolidationRunResult:
     entities_linked: int
     claims_created: int
     relations_created: int
+    contradictions_detected: int
+    patterns_created: int
+    concepts_created: int
+    rules_created: int
     errors: list[str]
 ```
 
@@ -196,10 +219,8 @@ The pipeline never raises — it always returns a result with error details.
 
 ---
 
-## Not in Scope
+## Remaining Limits
 
-- Abstraction (Pattern/Concept/Rule emergence) — Sprint 6e
-- Contradiction detection — later sprint
-- Trigger mechanism (wiring to WorkingMemory's `on_flush`) — wiring at server assembly
-- Idempotency / deduplication — v2
-- Performance optimization (loading all entities per type) — v2
+- Abstraction is heuristic-based and intentionally conservative
+- Idempotency / deduplication across repeated runs is still v2
+- Performance optimization (loading all entities per type) remains v2

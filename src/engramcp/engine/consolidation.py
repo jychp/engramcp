@@ -34,17 +34,24 @@ from engramcp.models.nodes import Agent
 from engramcp.models.nodes import AgentType
 from engramcp.models.nodes import Artifact
 from engramcp.models.nodes import ArtifactType
+from engramcp.models.nodes import Concept
 from engramcp.models.nodes import Decision
 from engramcp.models.nodes import Event
 from engramcp.models.nodes import Fact
 from engramcp.models.nodes import MemoryNode
 from engramcp.models.nodes import Observation
 from engramcp.models.nodes import Outcome
+from engramcp.models.nodes import Pattern
+from engramcp.models.nodes import Rule
 from engramcp.models.nodes import Source
 from engramcp.models.relations import CausedBy
 from engramcp.models.relations import Concerns
+from engramcp.models.relations import Contradicts
 from engramcp.models.relations import DecidedBy
+from engramcp.models.relations import DerivedFrom
 from engramcp.models.relations import Followed
+from engramcp.models.relations import Generalizes
+from engramcp.models.relations import InstanceOf
 from engramcp.models.relations import LeadsTo
 from engramcp.models.relations import Mentions
 from engramcp.models.relations import ObservedBy
@@ -52,6 +59,7 @@ from engramcp.models.relations import ParticipatedIn
 from engramcp.models.relations import PossiblySameAs
 from engramcp.models.relations import Preceded
 from engramcp.models.relations import RelationshipBase
+from engramcp.models.relations import ResolutionStatus
 from engramcp.models.relations import SourcedFrom
 from engramcp.models.relations import Supports
 
@@ -108,6 +116,10 @@ class ConsolidationRunResult:
     entities_linked: int = 0
     claims_created: int = 0
     relations_created: int = 0
+    contradictions_detected: int = 0
+    patterns_created: int = 0
+    concepts_created: int = 0
+    rules_created: int = 0
     errors: list[str] = field(default_factory=list)
 
 
@@ -141,6 +153,29 @@ def _parse_datetime(iso_str: str | None) -> datetime:
         return dt
     except (ValueError, TypeError):
         return datetime.now(timezone.utc)
+
+
+_NEGATION_TOKENS = {"not", "never", "no", "none", "cannot", "can't", "without"}
+
+
+def _tokenize_for_claim(text: str) -> list[str]:
+    cleaned = "".join(
+        ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in text
+    )
+    return [tok for tok in cleaned.split() if tok]
+
+
+def _claim_base_and_polarity(text: str) -> tuple[str, bool]:
+    tokens = _tokenize_for_claim(text)
+    has_negation = any(tok in _NEGATION_TOKENS for tok in tokens)
+    base_tokens = [tok for tok in tokens if tok not in _NEGATION_TOKENS]
+    return (" ".join(base_tokens), has_negation)
+
+
+def _claims_contradict(content_a: str, content_b: str) -> bool:
+    base_a, neg_a = _claim_base_and_polarity(content_a)
+    base_b, neg_b = _claim_base_and_polarity(content_b)
+    return bool(base_a) and base_a == base_b and neg_a != neg_b
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +215,7 @@ class ConsolidationPipeline:
         # --- 1. Extract ---
         extraction = await self._extraction.extract(fragments)
         result.errors.extend(extraction.errors)
+        existing_claims = await self._graph.find_claim_nodes()
 
         # --- 2. Resolve entities ---
         name_to_node_id: dict[str, str] = {}
@@ -195,7 +231,13 @@ class ConsolidationPipeline:
         # --- 5. Create extracted relations ---
         await self._create_relations(extraction, name_to_node_id, result)
 
-        # --- 6. Audit ---
+        # --- 6. Detect contradictions with existing claims ---
+        await self._detect_contradictions(existing_claims, claim_node_ids, result)
+
+        # --- 7. Abstraction ---
+        await self._run_abstraction(claim_node_ids, extraction, result)
+
+        # --- 8. Audit ---
         await self._audit.log(
             AuditEvent(
                 event_type=AuditEventType.CONSOLIDATION_RUN,
@@ -207,6 +249,10 @@ class ConsolidationPipeline:
                     "entities_linked": result.entities_linked,
                     "claims_created": result.claims_created,
                     "relations_created": result.relations_created,
+                    "contradictions_detected": result.contradictions_detected,
+                    "patterns_created": result.patterns_created,
+                    "concepts_created": result.concepts_created,
+                    "rules_created": result.rules_created,
                     "error_count": len(result.errors),
                 },
             )
@@ -484,3 +530,171 @@ class ConsolidationPipeline:
                     },
                 )
             )
+
+    # ------------------------------------------------------------------
+    # Contradiction detection
+    # ------------------------------------------------------------------
+
+    async def _detect_contradictions(
+        self,
+        existing_claims: list[MemoryNode],
+        claim_node_ids: list[tuple[str, ExtractedClaim]],
+        result: ConsolidationRunResult,
+    ) -> None:
+        existing_pairs = [
+            (node.id, getattr(node, "content", ""))
+            for node in existing_claims
+            if hasattr(node, "content")
+        ]
+
+        for new_claim_id, new_claim in claim_node_ids:
+            for existing_id, existing_content in existing_pairs:
+                if _claims_contradict(new_claim.content, existing_content):
+                    contradiction = Contradicts(
+                        detection_run_id=result.run_id,
+                        resolution_status=ResolutionStatus.unresolved,
+                    )
+                    await self._graph.create_relationship(
+                        new_claim_id, existing_id, contradiction
+                    )
+                    result.contradictions_detected += 1
+
+                    await self._audit.log(
+                        AuditEvent(
+                            event_type=AuditEventType.RELATION_CREATED,
+                            payload={
+                                "run_id": result.run_id,
+                                "rel_type": "CONTRADICTS",
+                                "from_id": new_claim_id,
+                                "to_id": existing_id,
+                            },
+                        )
+                    )
+
+    # ------------------------------------------------------------------
+    # Abstraction
+    # ------------------------------------------------------------------
+
+    async def _run_abstraction(
+        self,
+        claim_node_ids: list[tuple[str, ExtractedClaim]],
+        extraction: ExtractionResult,
+        result: ConsolidationRunResult,
+    ) -> None:
+        min_occurrences = max(2, self._config.pattern_min_occurrences)
+        buckets: dict[str, list[str]] = {}
+        for claim_id, claim in claim_node_ids:
+            key, _ = _claim_base_and_polarity(claim.content)
+            if not key:
+                continue
+            buckets.setdefault(key, []).append(claim_id)
+
+        pattern_ids: list[str] = []
+        for key, claim_ids in buckets.items():
+            if len(claim_ids) < min_occurrences:
+                continue
+
+            pattern = Pattern(
+                content=f"Recurring pattern: {key}",
+                derivation_run_id=result.run_id,
+            )
+            pattern_id = await self._graph.create_node(pattern)
+            pattern_ids.append(pattern_id)
+            result.patterns_created += 1
+
+            await self._audit.log(
+                AuditEvent(
+                    event_type=AuditEventType.NODE_CREATED,
+                    payload={
+                        "run_id": result.run_id,
+                        "node_id": pattern_id,
+                        "node_type": "Pattern",
+                    },
+                )
+            )
+
+            for claim_id in claim_ids:
+                await self._graph.create_relationship(
+                    pattern_id,
+                    claim_id,
+                    DerivedFrom(
+                        derivation_run_id=result.run_id,
+                        derivation_method="frequency_detection",
+                    ),
+                )
+                await self._graph.create_relationship(
+                    pattern_id, claim_id, Generalizes()
+                )
+                await self._graph.create_relationship(
+                    claim_id, pattern_id, InstanceOf()
+                )
+
+        concept_id: str | None = None
+        if len(pattern_ids) >= 2:
+            concept = Concept(
+                content=f"Concept derived from {len(pattern_ids)} patterns",
+                derivation_run_id=result.run_id,
+            )
+            concept_id = await self._graph.create_node(concept)
+            result.concepts_created += 1
+
+            await self._audit.log(
+                AuditEvent(
+                    event_type=AuditEventType.NODE_CREATED,
+                    payload={
+                        "run_id": result.run_id,
+                        "node_id": concept_id,
+                        "node_type": "Concept",
+                    },
+                )
+            )
+
+            for pattern_id in pattern_ids:
+                await self._graph.create_relationship(
+                    concept_id,
+                    pattern_id,
+                    DerivedFrom(
+                        derivation_run_id=result.run_id,
+                        derivation_method="pattern_clustering",
+                    ),
+                )
+                await self._graph.create_relationship(
+                    concept_id, pattern_id, Generalizes()
+                )
+                await self._graph.create_relationship(
+                    pattern_id, concept_id, InstanceOf()
+                )
+
+        has_causal_signal = any(
+            rel.relation_type in {"CAUSED_BY", "LEADS_TO"}
+            for rel in extraction.relations
+        )
+        if concept_id and has_causal_signal:
+            rule = Rule(
+                content="Causal rule derived from recurring concept patterns",
+                derivation_run_id=result.run_id,
+            )
+            rule_id = await self._graph.create_node(rule)
+            result.rules_created += 1
+
+            await self._audit.log(
+                AuditEvent(
+                    event_type=AuditEventType.NODE_CREATED,
+                    payload={
+                        "run_id": result.run_id,
+                        "node_id": rule_id,
+                        "node_type": "Rule",
+                    },
+                )
+            )
+
+            await self._graph.create_relationship(
+                rule_id,
+                concept_id,
+                DerivedFrom(
+                    derivation_run_id=result.run_id,
+                    derivation_method="causal_abstraction",
+                ),
+            )
+            await self._graph.create_relationship(rule_id, concept_id, Generalizes())
+            await self._graph.create_relationship(concept_id, rule_id, InstanceOf())

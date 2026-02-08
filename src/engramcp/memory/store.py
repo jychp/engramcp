@@ -109,6 +109,8 @@ class WorkingMemory:
         self._flush_threshold = flush_threshold
         self._on_flush = on_flush
         self._flush_lock = asyncio.Lock()
+        self._flush_task: asyncio.Task[None] | None = None
+        self._flush_pending = False
 
     # -- write --
 
@@ -146,25 +148,38 @@ class WorkingMemory:
         if self._flush_threshold and self._on_flush:
             current = await self.count()
             if current >= self._flush_threshold:
-                await self._trigger_flush(current)
+                self._trigger_flush(current)
 
         return fragment.id
 
-    async def _trigger_flush(self, current: int) -> None:
+    def _trigger_flush(self, current: int) -> None:
         """Schedule flush callback as a background task with error handling."""
-        # Safe in asyncio: no await between locked() and async-with, so no
-        # other coroutine can interleave between the check and the acquire.
-        if self._flush_lock.locked():
+        if self._flush_task and not self._flush_task.done():
+            self._flush_pending = True
             return
+        self._flush_task = asyncio.create_task(self._run_flush(current))
 
-        async with self._flush_lock:
-            fragments = await self.get_recent(limit=current)
-            try:
-                if self._on_flush is None:
-                    raise RuntimeError("on_flush callback is not configured")
-                await self._on_flush(fragments)
-            except Exception:
-                logger.exception("on_flush callback failed")
+    async def _run_flush(self, current: int) -> None:
+        try:
+            async with self._flush_lock:
+                fragments = await self.get_recent(limit=current)
+                try:
+                    if self._on_flush is None:
+                        raise RuntimeError("on_flush callback is not configured")
+                    await self._on_flush(fragments)
+                except Exception:
+                    logger.exception("on_flush callback failed")
+        finally:
+            retrigger = self._flush_pending
+            self._flush_pending = False
+
+            if self._flush_task is asyncio.current_task():
+                self._flush_task = None
+
+            if retrigger and self._flush_threshold and self._on_flush:
+                latest = await self.count()
+                if latest >= self._flush_threshold:
+                    self._trigger_flush(latest)
 
     # -- read --
 
