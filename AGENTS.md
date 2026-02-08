@@ -164,8 +164,10 @@ src/engramcp/
 - **Scenario eval location**: all Tier 1, Tier 2, and Tier 3 evaluation suites must live under `tests/scenarios/` (tests, fixtures, and helpers)
 - **Real-LLM evals**: optional opt-in E2E evals live in `tests/scenarios/test_e2e_real_llm_eval.py` and require explicit environment opt-in + provider credentials
 - **Real-LLM test execution policy**: always ask the user for explicit confirmation before running real-LLM evals (`ENGRAMCP_RUN_REAL_LLM_EVALS=1`), even when `.env` is present and fully configured
-- **Scenario command targets**: use `make test-scenarios` for CI-safe evals (non-`real_llm`), `make test-scenarios-tier2` for curated Tier 2 iteration, `make calibrate-eval-thresholds` to generate calibration outputs from scenario metrics, and `make test-real-llm-evals` for explicit opt-in provider-backed runs
+- **Scenario command targets**: use `make test-scenarios` for CI-safe evals (non-`real_llm`), `make test-scenarios-tier2` for curated Tier 2 iteration, `make calibrate-eval-thresholds` to generate calibration outputs from scenario metrics, and `make test-real-llm-evals` (or alias `make test-scenarios-real-llm`) for explicit opt-in provider-backed runs
 - **Scenario metrics/calibration artifacts**: CI-safe scenario runs emit JSONL metrics (`reports/scenario-metrics.jsonl`) and calibration reports (`reports/eval-calibration.json`) used to track pass/fail metric classes and threshold recommendations
+- **Real-LLM CI opt-in**: `checks.yml` contains a dedicated real-provider scenario job gated to manual dispatch on `main` (`workflow_dispatch` input) and GitHub Environment `real-llm-evals` credentials, with concurrency control to avoid duplicate cost runs
+- **Real-LLM run metadata artifacts**: provider-backed scenario runs emit `reports/scenario-metrics-real-llm.jsonl` including `model_used` for traceability
 - **Confidence**: NATO two-dimensional rating (letter = source reliability, number = credibility)
 - **Confidence on relations, not nodes**: same fact can have different ratings from different sources
 - **MCP errors**: tool responses may include `error_code` and `message` when rejected/errored

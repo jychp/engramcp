@@ -54,6 +54,10 @@ Default scenario run (CI-safe):
 Opt-in real-provider run:
 - requires explicit user confirmation in collaborative workflows
 - requires `ENGRAMCP_RUN_REAL_LLM_EVALS=1` and provider credentials
+- CI supports an opt-in real-provider job in `checks.yml` via:
+  - manual dispatch input (`run_real_llm_evals=true`) on `main`
+  - GitHub Environment `real-llm-evals` with `OPENAI_API_KEY` secret
+  - concurrency control to avoid duplicate provider-cost runs
 
 ---
 
@@ -80,6 +84,7 @@ Scenario jobs should produce:
 - JUnit XML report for CI artifact/debugging
 - scenario metrics JSONL (`reports/scenario-metrics.jsonl`) for threshold calibration
 - calibration summary JSON (`reports/eval-calibration.json`) for default/eval-profile recommendations
+- for opt-in provider runs: `reports/scenario-metrics-real-llm.jsonl` with run metadata (`model_used`)
 
 Recommended command shape:
 
@@ -98,6 +103,7 @@ Current pass/fail metric classes:
 - `retrieval_relevance`: `graph_hits >= 1`, returned memories >= 1, keyword hit >= 1
 - `contradiction_coverage`: contradictions >= 1 for contradiction scenarios
 - `corroboration`: unique supporting source IDs >= 2
+- `confidence_progression`: credibility improves with independent corroboration and regresses when sources become dependent
 - `derivation_traceability`: at least one `Rule` memory with `derivation_depth == 3` and `derivation_run_id` present
 
 ---
@@ -115,6 +121,5 @@ Current pass/fail metric classes:
 
 ## Next Additions
 
-- Add reusable curated fixtures for causal chains and corroboration in Tier 2
 - Add Tier 3 ingestion/evaluation harness over real raw dataset slices
-- Add threshold-calibrated pass/fail metrics per tier
+- Add threshold-calibrated pass/fail metrics per tier for Tier 3 datasets
