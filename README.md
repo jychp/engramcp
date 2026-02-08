@@ -77,6 +77,11 @@ Current configuration is code-based (dataclasses), not env-var based.
 - LLM settings: `src/engramcp/config.py` (`LLMConfig`)
   - Providers: `openai` (requires `api_key`) and `noop` (deterministic local/testing adapter)
 - Consolidation settings: `src/engramcp/config.py` (`ConsolidationConfig`)
+  - Includes extraction retry/failure policy:
+    - `extraction_max_retries`
+    - `extraction_retry_backoff_seconds`
+    - `retry_on_invalid_json`
+    - `retry_on_schema_validation_error`
 - Entity resolution settings: `src/engramcp/config.py` (`EntityResolutionConfig`)
 - Audit settings: `src/engramcp/config.py` (`AuditConfig`)
 
@@ -204,6 +209,24 @@ EngraMCP follows a layered architecture from MCP interface to storage/consolidat
 uv run pytest
 uv run pre-commit run --all-files
 ```
+
+Optional real-LLM end-to-end evals (opt-in, requires API key and may incur cost):
+
+```bash
+cp .env.example .env
+# edit .env and set ENGRAMCP_RUN_REAL_LLM_EVALS=1 + OPENAI_API_KEY
+```
+
+Execution policy:
+- Real-LLM eval tests are never run implicitly in collaborative workflows.
+- Always ask for explicit user confirmation before triggering them, even if `.env` is already configured.
+
+```bash
+make test-real-llm-evals
+```
+
+Why tokenized graph retrieval matching:
+- Retrieval now matches claim content on query tokens (not full-query substring only), reducing false negatives for natural-language queries like `meeting date` against stored claim text.
 
 ## Releases and Changelog
 

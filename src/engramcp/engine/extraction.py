@@ -7,6 +7,7 @@ and claims.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Protocol
@@ -96,26 +97,46 @@ class ExtractionEngine:
         """Extract from a single batch of fragments."""
         prompt = build_extraction_prompt(fragments)
         fragment_ids = [f.id for f in fragments]
+        max_attempts = max(1, self._consolidation_config.extraction_max_retries + 1)
+        last_result: ExtractionResult | None = None
 
-        try:
-            raw = await self._llm.complete(
-                prompt,
-                temperature=self._llm_config.temperature,
-                max_tokens=self._llm_config.max_tokens,
-                timeout_seconds=self._llm_config.timeout_seconds,
-            )
-        except LLMError as exc:
-            return ExtractionResult(
-                fragment_ids_processed=fragment_ids,
-                errors=[f"LLM call failed: {exc}"],
-            )
+        for attempt in range(max_attempts):
+            try:
+                raw = await self._llm.complete(
+                    prompt,
+                    temperature=self._llm_config.temperature,
+                    max_tokens=self._llm_config.max_tokens,
+                    timeout_seconds=self._llm_config.timeout_seconds,
+                )
+            except LLMError as exc:
+                last_result = ExtractionResult(
+                    fragment_ids_processed=fragment_ids,
+                    errors=[f"LLM call failed: {exc}"],
+                )
+                if attempt < max_attempts - 1:
+                    await self._sleep_before_retry(attempt)
+                    continue
+                return last_result
 
-        result = self._parse_llm_output(raw)
-        # Ensure fragment IDs are tracked even if the LLM omits them
-        result.fragment_ids_processed = list(
-            dict.fromkeys(result.fragment_ids_processed + fragment_ids)
+            result, failure_kind = self._parse_llm_output_with_failure_kind(raw)
+            # Ensure fragment IDs are tracked even if the LLM omits them
+            result.fragment_ids_processed = list(
+                dict.fromkeys(result.fragment_ids_processed + fragment_ids)
+            )
+            last_result = result
+
+            if failure_kind is None:
+                return result
+            if attempt < max_attempts - 1 and self._should_retry(failure_kind):
+                await self._sleep_before_retry(attempt)
+                continue
+            return result
+
+        # Defensive fallback (loop always returns).
+        return last_result or ExtractionResult(
+            fragment_ids_processed=fragment_ids,
+            errors=["Extraction failed with unknown error state."],
         )
-        return result
 
     @staticmethod
     def _parse_llm_output(raw: str) -> ExtractionResult:
@@ -123,6 +144,14 @@ class ExtractionEngine:
 
         Handles code fences and invalid JSON gracefully.
         """
+        result, _ = ExtractionEngine._parse_llm_output_with_failure_kind(raw)
+        return result
+
+    @staticmethod
+    def _parse_llm_output_with_failure_kind(
+        raw: str,
+    ) -> tuple[ExtractionResult, str | None]:
+        """Parse raw output and return an optional failure kind."""
         text = raw.strip()
 
         # Strip code fences (```json ... ```)
@@ -133,16 +162,33 @@ class ExtractionEngine:
         try:
             data = json.loads(text)
         except (json.JSONDecodeError, ValueError) as exc:
-            return ExtractionResult(
-                errors=[f"Invalid JSON from LLM: {exc}"],
+            return (
+                ExtractionResult(errors=[f"Invalid JSON from LLM: {exc}"]),
+                "invalid_json",
             )
 
         try:
-            return ExtractionResult.model_validate(data)
+            return ExtractionResult.model_validate(data), None
         except Exception as exc:
-            return ExtractionResult(
-                errors=[f"Schema validation failed: {exc}"],
+            return (
+                ExtractionResult(errors=[f"Schema validation failed: {exc}"]),
+                "schema_validation",
             )
+
+    def _should_retry(self, failure_kind: str) -> bool:
+        """Return whether this parse failure should trigger a retry."""
+        if failure_kind == "invalid_json":
+            return self._consolidation_config.retry_on_invalid_json
+        if failure_kind == "schema_validation":
+            return self._consolidation_config.retry_on_schema_validation_error
+        return False
+
+    async def _sleep_before_retry(self, attempt: int) -> None:
+        """Sleep with simple exponential backoff between retries."""
+        base = self._consolidation_config.extraction_retry_backoff_seconds
+        if base <= 0:
+            return
+        await asyncio.sleep(base * (2**attempt))
 
     @staticmethod
     def _merge_results(

@@ -38,6 +38,10 @@ class TestConsolidationConfig:
         assert cfg.fragment_threshold == 10
         assert cfg.extraction_batch_size == 5
         assert cfg.pattern_min_occurrences == 3
+        assert cfg.extraction_max_retries == 0
+        assert cfg.extraction_retry_backoff_seconds == 0.0
+        assert cfg.retry_on_invalid_json is True
+        assert cfg.retry_on_schema_validation_error is True
 
 
 # ---------------------------------------------------------------------------

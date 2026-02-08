@@ -11,6 +11,7 @@ from datetime import timezone
 
 import pytest
 
+from engramcp.graph.store import _tokenize_query
 from engramcp.models import (
     Agent,
     AgentType,
@@ -39,6 +40,23 @@ from engramcp.models import (
     SourcedFrom,
     TemporalPrecision,
 )
+
+
+class TestQueryTokenization:
+    def test_empty_query_returns_no_tokens(self) -> None:
+        assert _tokenize_query("") == []
+
+    def test_punctuation_only_returns_no_tokens(self) -> None:
+        assert _tokenize_query("... !!! ???") == []
+
+    def test_deduplicates_and_casefolds_tokens(self) -> None:
+        assert _tokenize_query("Meeting meeting DATE date") == ["meeting", "date"]
+
+    def test_drops_short_tokens_when_long_tokens_exist(self) -> None:
+        assert _tokenize_query("to meeting at date") == ["meeting", "date"]
+
+    def test_keeps_short_tokens_when_only_short_tokens_exist(self) -> None:
+        assert _tokenize_query("to be or") == ["to", "be", "or"]
 
 
 # ===================================================================
@@ -449,6 +467,18 @@ class TestQueries:
         assert observation.id in ids
         assert event.id not in ids
 
+    async def test_find_claim_nodes_by_content_tokenized_query(self, graph_store):
+        fact = Fact(content="The meeting happened on March 15, 2025")
+        unrelated = Fact(content="Unrelated logistics note")
+        await graph_store.create_node(fact)
+        await graph_store.create_node(unrelated)
+
+        results = await graph_store.find_claim_nodes_by_content("meeting date", limit=5)
+
+        ids = {node.id for node in results}
+        assert fact.id in ids
+        assert unrelated.id not in ids
+
     async def test_find_claim_context_by_content_with_bounded_depth(self, graph_store):
         root = Fact(content="Severe weather event")
         direct = Fact(content="Storm impacted flight routes")
@@ -507,6 +537,19 @@ class TestQueries:
         assert len(contexts) == 1
         assert contexts[0]["sources"] == []
         assert contexts[0]["contradictions"] == []
+
+    async def test_find_claim_context_by_content_tokenized_query(self, graph_store):
+        fact = Fact(content="The meeting happened on March 17, 2025")
+        await graph_store.create_node(fact)
+
+        contexts = await graph_store.find_claim_context_by_content(
+            "meeting date",
+            include_sources=False,
+            include_contradictions=False,
+        )
+
+        assert len(contexts) == 1
+        assert contexts[0]["node"]["id"] == fact.id
 
     async def test_causal_chain_relation_matches_terminal_target_edge(self, graph_store):
         origin = Fact(content="Origin claim about storm")

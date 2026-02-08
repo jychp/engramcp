@@ -8,15 +8,46 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 import time
 
 import pytest
 import redis as sync_redis
+from dotenv import load_dotenv
 from neo4j import AsyncGraphDatabase
 from redis.asyncio import Redis
 from testcontainers.core.container import DockerContainer
 
 logger = logging.getLogger(__name__)
+
+# Load repository-root .env for test opt-ins (existing env vars stay authoritative).
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env", override=False)
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Attach suite markers from test path.
+
+    - `tests/unit/*` -> `unit`
+    - `tests/integration/*` -> `integration`
+    - `tests/scenarios/*` -> `scenario`
+    """
+    root = Path(__file__).resolve().parents[1]
+    for item in items:
+        item_path = Path(str(item.fspath)).resolve()
+        try:
+            rel = item_path.relative_to(root)
+        except ValueError:
+            continue
+
+        parts = rel.parts
+        if len(parts) < 2 or parts[0] != "tests":
+            continue
+        if parts[1] == "unit":
+            item.add_marker(pytest.mark.unit)
+        elif parts[1] == "integration":
+            item.add_marker(pytest.mark.integration)
+        elif parts[1] == "scenarios":
+            item.add_marker(pytest.mark.scenario)
 
 
 # ---------------------------------------------------------------------------

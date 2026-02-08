@@ -7,6 +7,7 @@ node creation and type-based dispatch for relationships.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import Enum
 
@@ -48,6 +49,7 @@ _ALLOWED_REL_TYPES = {
     "MERGED_FROM",
 }
 _ALLOWED_DIRECTIONS = {"outgoing", "incoming", "both"}
+_QUERY_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 
 
 def _require_allowed(value: str, allowed: set[str], *, field_name: str) -> str:
@@ -55,6 +57,17 @@ def _require_allowed(value: str, allowed: set[str], *, field_name: str) -> str:
         msg = f"Invalid {field_name}: {value!r}"
         raise ValueError(msg)
     return value
+
+
+def _tokenize_query(query: str) -> list[str]:
+    """Normalize a free-text query into lowercase search tokens."""
+    tokens = [token.casefold() for token in _QUERY_TOKEN_RE.findall(query)]
+    filtered = [token for token in tokens if len(token) >= 3]
+    if filtered:
+        return list(dict.fromkeys(filtered))
+    if tokens:
+        return list(dict.fromkeys(tokens))
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -295,14 +308,21 @@ class GraphStore:
         self, query: str, *, limit: int = 20
     ) -> list[MemoryNode]:
         """Find claim nodes whose textual ``content`` matches a query substring."""
+        tokens = _tokenize_query(query)
+        if not tokens:
+            return []
         cypher = (
             "MATCH (n:Fact|Event|Observation|Decision|Outcome) "
-            "WHERE toLower(n.content) CONTAINS toLower($search_query) "
+            "WHERE ANY(token IN $search_tokens WHERE toLower(n.content) CONTAINS token) "
             "RETURN properties(n) AS props, labels(n) AS labels "
             "ORDER BY n.updated_at DESC "
             "LIMIT $limit"
         )
-        return await self._run_multi_node_query(cypher, search_query=query, limit=limit)
+        return await self._run_multi_node_query(
+            cypher,
+            search_tokens=tokens,
+            limit=limit,
+        )
 
     async def find_claim_context_by_content(
         self,
@@ -318,16 +338,23 @@ class GraphStore:
             max_depth = 1
         if max_depth > 10:
             max_depth = 10
+        tokens = _tokenize_query(query)
+        if not tokens:
+            return []
 
         node_query = (
             "MATCH (n:Fact|Event|Observation|Decision|Outcome) "
-            "WHERE toLower(n.content) CONTAINS toLower($search_query) "
+            "WHERE ANY(token IN $search_tokens WHERE toLower(n.content) CONTAINS token) "
             "RETURN properties(n) AS props, labels(n) AS labels "
             "ORDER BY n.updated_at DESC "
             "LIMIT $limit"
         )
         async with self._driver.session() as session:
-            node_result = await session.run(node_query, search_query=query, limit=limit)
+            node_result = await session.run(
+                node_query,
+                search_tokens=tokens,
+                limit=limit,
+            )
             nodes = [record.data() async for record in node_result]
             contexts: list[dict] = []
             for node_record in nodes:
