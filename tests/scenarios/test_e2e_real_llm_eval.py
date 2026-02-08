@@ -21,11 +21,13 @@ from engramcp.server import _get_wm
 from engramcp.server import configure
 from engramcp.server import mcp
 from engramcp.server import shutdown
+from tests.scenarios.helpers.reporting import build_failure_context
 
 _RUN_REAL_EVALS = os.getenv("ENGRAMCP_RUN_REAL_LLM_EVALS") == "1"
 _OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 pytestmark = [
+    pytest.mark.tier1,
     pytest.mark.real_llm,
     pytest.mark.skipif(
         not (_RUN_REAL_EVALS and _OPENAI_API_KEY),
@@ -100,9 +102,14 @@ class TestRealLLME2EEvals:
             result = await client.call_tool("get_memory", {"query": "Eiffel Tower"})
             data = _parse(result)
 
-        assert data["meta"]["working_memory_hits"] == 0
-        assert data["meta"]["graph_hits"] >= 1
-        assert any("Eiffel Tower" in memory["content"] for memory in data["memories"])
+        ctx = build_failure_context(
+            scenario="tier1_real_llm_eiffel_tower",
+            query="Eiffel Tower",
+            response=data,
+        )
+        assert data["meta"]["working_memory_hits"] == 0, ctx
+        assert data["meta"]["graph_hits"] >= 1, ctx
+        assert any("Eiffel Tower" in memory["content"] for memory in data["memories"]), ctx
 
     async def test_send_consolidate_get_surfaces_conflicting_claims(self):
         async with Client(mcp) as client:
@@ -125,9 +132,14 @@ class TestRealLLME2EEvals:
             result = await client.call_tool("get_memory", {"query": "2025"})
             data = _parse(result)
 
-        assert data["meta"]["graph_hits"] >= 1
-        assert len(data["memories"]) >= 1
+        ctx = build_failure_context(
+            scenario="tier1_real_llm_meeting_conflict",
+            query="2025",
+            response=data,
+        )
+        assert data["meta"]["graph_hits"] >= 1, ctx
+        assert len(data["memories"]) >= 1, ctx
         assert (
             len(data["contradictions"]) >= 1
             or sum("2025" in memory["content"] for memory in data["memories"]) >= 1
-        )
+        ), ctx

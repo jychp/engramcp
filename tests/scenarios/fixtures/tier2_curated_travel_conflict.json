@@ -1,0 +1,10 @@
+{
+  "scenario_name": "tier2_curated_travel_conflict",
+  "fragments": [
+    "John Doe traveled to St. Thomas on March 15, 2010.",
+    "John Doe traveled to St. Thomas on 2010-03-15.",
+    "John Doe not traveled to St. Thomas on March 15, 2010.",
+    "John Doe traveled to St. Thomas according to customs on 2010-03-15."
+  ],
+  "query": "john doe whereabouts march 2010 st thomas"
+}

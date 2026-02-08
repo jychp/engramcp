@@ -52,6 +52,9 @@ markers = [
     "unit: unit test suite (tests/unit)",
     "integration: integration test suite (tests/integration)",
     "scenario: scenario/evaluation suite (tests/scenarios)",
+    "tier1: tier-1 synthetic scenario evaluations",
+    "tier2: tier-2 curated semi-real scenario evaluations",
+    "tier3: tier-3 real raw-data scenario evaluations",
     "real_llm: opt-in tests that call a real LLM provider and may incur costs",
 ]
 

@@ -480,10 +480,12 @@ class GraphStore:
         node_id: str,
         max_depth: int,
     ) -> list[dict]:
+        rel_types = ["CAUSED_BY", "LEADS_TO", "PRECEDED", "FOLLOWED"]
         query = (
-            "MATCH p = (n:Memory {id: $node_id})-"
-            f"[:CAUSED_BY|LEADS_TO|PRECEDED|FOLLOWED*1..{max_depth}]"
-            "-(m:Memory) "
+            "MATCH p = (n:Memory {id: $node_id})-[rels*1.."
+            f"{max_depth}"
+            "]-(m:Memory) "
+            "WHERE ALL(rel IN rels WHERE type(rel) IN $rel_types) "
             "WITH m, p "
             "ORDER BY length(p) ASC "
             "WITH m, last(relationships(p)) AS terminal_rel "
@@ -494,7 +496,7 @@ class GraphStore:
             "coalesce(terminal_rel.credibility, terminal_rel.confidence, null) AS confidence "
             "LIMIT 20"
         )
-        result = await session.run(query, node_id=node_id)
+        result = await session.run(query, node_id=node_id, rel_types=rel_types)
         links: list[dict] = []
         async for record in result:
             links.append(
