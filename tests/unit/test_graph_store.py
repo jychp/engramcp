@@ -429,6 +429,24 @@ class TestQueries:
         assert event.id in ids
         assert source.id not in ids
 
+    async def test_find_claim_nodes_by_content(self, graph_store):
+        fact = Fact(content="Neo4j keeps relationship context")
+        event = Event(
+            content="Redis caches short-term context",
+            occurred_at=datetime(2024, 6, 1, tzinfo=timezone.utc),
+        )
+        observation = Observation(content="Neo4j query matched this observation")
+
+        await graph_store.create_node(fact)
+        await graph_store.create_node(event)
+        await graph_store.create_node(observation)
+
+        results = await graph_store.find_claim_nodes_by_content("neo4j", limit=5)
+        ids = {node.id for node in results}
+        assert fact.id in ids
+        assert observation.id in ids
+        assert event.id not in ids
+
     async def test_find_contradictions_unresolved(self, graph_store):
         f1 = Fact(content="Claim A")
         f2 = Fact(content="Claim B")

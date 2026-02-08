@@ -179,7 +179,7 @@ Upper layers are tested with mocks that get progressively replaced as lower laye
 | Graph Store (2) | Not needed until Layer 2 | Layer 2 implemented |
 | Confidence Engine (3) | Static ratings | Layer 3 implemented |
 | Consolidation LLM (4) | Deterministic JSON responses | Layer 4 implemented |
-| Retrieval Engine (6) | Keyword matching in `server.py` + `memory/store.py` | Replaced by `engine/retrieval.py` (WM-first + graph fallback stub + scoring protocol) |
+| Retrieval Engine (6) | Keyword matching in `server.py` + `memory/store.py` | Replaced by `engine/retrieval.py` (WM-first + graph content fallback + scoring protocol) |
 
 ---
 

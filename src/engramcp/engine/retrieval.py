@@ -1,4 +1,4 @@
-"""Retrieval engine (Layer 6) with WM-first strategy and graph fallback stub."""
+"""Retrieval engine (Layer 6) with WM-first strategy and graph fallback."""
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ class RecencyConfidenceScorer:
         return fragment.timestamp + confidence_bonus
 
     def score_graph_memory(self, memory: MemoryEntry) -> float:
-        # No recency signal is currently available for graph fallback stubs.
+        # Graph entries currently expose no confidence relation in this projection.
         return _confidence_bonus(memory.confidence)
 
 
@@ -81,7 +81,7 @@ class RetrievalEngine:
         wm_matches.sort(key=self._scorer.score_working_memory, reverse=True)
         graph_matches: list[MemoryEntry] = []
         if not wm_matches:
-            graph_matches = await self._search_graph_stub(request)
+            graph_matches = await self._search_graph(request)
             graph_matches.sort(key=self._scorer.score_graph_memory, reverse=True)
 
         total_found = len(wm_matches) + len(graph_matches)
@@ -149,17 +149,25 @@ class RetrievalEngine:
         if signal is not None:
             self._concept_registry.observe_signal(signal)
 
-    async def _search_graph_stub(self, request: GetMemoryInput) -> list[MemoryEntry]:
-        """Fallback traversal placeholder until graph retrieval is implemented."""
+    async def _search_graph(self, request: GetMemoryInput) -> list[MemoryEntry]:
+        """Search graph claims by query content with legacy compatibility fallback."""
         if self._graph is None:
             return []
 
-        nodes = await self._graph.find_claim_nodes()
+        find_by_content = getattr(self._graph, "find_claim_nodes_by_content", None)
+        if callable(find_by_content):
+            nodes = await find_by_content(request.query, limit=request.limit)
+        else:
+            nodes = await self._graph.find_claim_nodes()
+
         entries: list[MemoryEntry] = []
+        query = request.query.casefold()
         for node in nodes:
             node_id = getattr(node, "id", None)
             content = getattr(node, "content", None)
             if not node_id or not content:
+                continue
+            if query and query not in content.casefold():
                 continue
 
             entries.append(

@@ -23,6 +23,26 @@ class _FakeWorkingMemory:
 class _FakeGraphRetriever:
     nodes: list[Fact]
     calls: int = 0
+    last_query: str | None = None
+    last_limit: int | None = None
+
+    async def find_claim_nodes(self) -> list[Fact]:
+        self.calls += 1
+        return list(self.nodes)
+
+    async def find_claim_nodes_by_content(self, query: str, *, limit: int) -> list[Fact]:
+        self.calls += 1
+        self.last_query = query
+        self.last_limit = limit
+        normalized = query.casefold()
+        filtered = [node for node in self.nodes if normalized in node.content.casefold()]
+        return filtered[:limit]
+
+
+@dataclass
+class _LegacyGraphRetriever:
+    nodes: list[Fact]
+    calls: int = 0
 
     async def find_claim_nodes(self) -> list[Fact]:
         self.calls += 1
@@ -52,7 +72,10 @@ class TestRetrievalEngine:
     async def test_falls_through_to_graph(self):
         wm = _FakeWorkingMemory(results=[])
         graph = _FakeGraphRetriever(
-            nodes=[Fact(id="fact_1", content="Neo4j graph fallback result")]
+            nodes=[
+                Fact(id="fact_1", content="Neo4j graph fallback result"),
+                Fact(id="fact_2", content="Other content"),
+            ]
         )
         engine = RetrievalEngine(wm, graph_retriever=graph)
 
@@ -63,6 +86,25 @@ class TestRetrievalEngine:
         assert result.meta.graph_hits == 1
         assert result.memories[0].id == "fact_1"
         assert result.memories[0].content == "Neo4j graph fallback result"
+        assert graph.calls == 1
+        assert graph.last_query == "Neo4j"
+        assert graph.last_limit == 20
+
+    async def test_falls_back_to_legacy_graph_retriever_contract(self):
+        wm = _FakeWorkingMemory(results=[])
+        graph = _LegacyGraphRetriever(
+            nodes=[
+                Fact(id="fact_1", content="Neo4j graph fallback result"),
+                Fact(id="fact_2", content="Other content"),
+            ]
+        )
+        engine = RetrievalEngine(wm, graph_retriever=graph)
+
+        result = await engine.retrieve(GetMemoryInput(query="Neo4j"))
+
+        assert result.meta.total_found == 1
+        assert result.meta.graph_hits == 1
+        assert result.memories[0].id == "fact_1"
         assert graph.calls == 1
 
     async def test_tracks_query_pattern_shape(self):

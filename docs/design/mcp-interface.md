@@ -10,7 +10,7 @@
 
 The MCP interface is the only entry point for agents interacting with EngraMCP. It exposes three tools via FastMCP v2: **write**, **read**, and **correct**.
 
-The interface is wired to the Redis-backed `WorkingMemory` domain. `get_memory` delegates retrieval/synthesis to Layer 6 (`engine/retrieval.py`) with WM-first behavior and graph fallback stub.
+The interface is wired to the Redis-backed `WorkingMemory` domain. `get_memory` delegates retrieval/synthesis to Layer 6 (`engine/retrieval.py`) with WM-first behavior and graph content fallback.
 
 ---
 
@@ -131,6 +131,6 @@ All tests use `fastmcp.Client(mcp)` — no direct function calls.
 
 ## Future Changes
 
-- Expand Layer 6 retrieval from fallback stub to full graph traversal and contradiction-aware synthesis
+- Expand Layer 6 retrieval from content fallback to full graph traversal and contradiction-aware synthesis
 - `correct_memory` stub replaced by real confidence cascade via `engine/confidence.py`
 - Tool signatures and response shapes are **frozen** — additive fields only without version bump
