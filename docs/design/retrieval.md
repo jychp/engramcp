@@ -52,6 +52,7 @@ This keeps current ordering stable while exposing a swappable ranking interface 
 Graph fallback is query-aware and context-aware:
 
 - Uses `find_claim_context_by_content(query, limit, max_depth, include_sources, include_contradictions)` when available
+- Searches both claim nodes (`Fact/Event/Observation/Decision/Outcome`) and derived nodes (`Pattern/Concept/Rule`)
 - Enriches graph hits with bounded causal expansion (`max_depth`)
 - Returns source trail and unresolved contradictions when requested
 - Derives `dynamic_type` from labels beyond ontology base labels

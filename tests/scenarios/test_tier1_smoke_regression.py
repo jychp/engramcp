@@ -17,6 +17,8 @@ from engramcp.server import _get_wm
 from engramcp.server import configure
 from engramcp.server import mcp
 from engramcp.server import shutdown
+from tests.scenarios.helpers.metrics import emit_scenario_metric
+from tests.scenarios.helpers.metrics import THRESHOLDS
 from tests.scenarios.helpers.reporting import build_failure_context
 
 pytestmark = [pytest.mark.tier1]
@@ -105,6 +107,22 @@ class TestTier1SmokeRegression:
             response=data,
             fragments=fragments,
         )
+        graph_hits = data["meta"]["graph_hits"]
+        memories = data["memories"]
+        eiffel_hits = sum("Eiffel Tower" in memory["content"] for memory in memories)
+        emit_scenario_metric(
+            scenario="tier1_smoke_eiffel_retrieval",
+            tier="tier1",
+            metric_class="retrieval_relevance",
+            values={
+                "working_memory_hits": data["meta"]["working_memory_hits"],
+                "graph_hits": graph_hits,
+                "returned_memories": len(memories),
+                "keyword_hits": eiffel_hits,
+            },
+        )
+
         assert data["meta"]["working_memory_hits"] == 0, ctx
-        assert data["meta"]["graph_hits"] >= 1, ctx
-        assert any("Eiffel Tower" in memory["content"] for memory in data["memories"]), ctx
+        assert graph_hits >= THRESHOLDS.min_graph_hits, ctx
+        assert len(memories) >= THRESHOLDS.min_memories, ctx
+        assert eiffel_hits >= 1, ctx

@@ -82,6 +82,8 @@ Current configuration is code-based (dataclasses), not env-var based.
     - `extraction_retry_backoff_seconds`
     - `retry_on_invalid_json`
     - `retry_on_schema_validation_error`
+  - Scenario-only deterministic profile helper:
+    - `scenario_eval_consolidation_config()` (`fragment_threshold=4`, `pattern_min_occurrences=2`)
 - Entity resolution settings: `src/engramcp/config.py` (`EntityResolutionConfig`)
 - Audit settings: `src/engramcp/config.py` (`AuditConfig`)
 
@@ -211,7 +213,12 @@ uv run pytest
 uv run pre-commit run --all-files
 make test-scenarios
 make test-scenarios-tier2
+make calibrate-eval-thresholds
 ```
+
+`make calibrate-eval-thresholds` also writes:
+- `reports/scenario-metrics.jsonl`
+- `reports/eval-calibration.json`
 
 Optional real-LLM end-to-end evals (opt-in, requires API key and may incur cost):
 

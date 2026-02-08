@@ -78,6 +78,8 @@ When assertions fail, tests should emit:
 Scenario jobs should produce:
 - terminal summary (`-ra`, short traceback)
 - JUnit XML report for CI artifact/debugging
+- scenario metrics JSONL (`reports/scenario-metrics.jsonl`) for threshold calibration
+- calibration summary JSON (`reports/eval-calibration.json`) for default/eval-profile recommendations
 
 Recommended command shape:
 
@@ -85,6 +87,18 @@ Recommended command shape:
 uv run pytest tests/scenarios -m "scenario and not real_llm" -ra --tb=short \
   --maxfail=1 --durations=10 --junitxml=reports/pytest-scenarios.xml
 ```
+
+Calibration command:
+
+```bash
+make calibrate-eval-thresholds
+```
+
+Current pass/fail metric classes:
+- `retrieval_relevance`: `graph_hits >= 1`, returned memories >= 1, keyword hit >= 1
+- `contradiction_coverage`: contradictions >= 1 for contradiction scenarios
+- `corroboration`: unique supporting source IDs >= 2
+- `derivation_traceability`: at least one `Rule` memory with `derivation_depth == 3` and `derivation_run_id` present
 
 ---
 

@@ -48,9 +48,19 @@ jobs:
         run: uv run --frozen pytest -vvv --cov-report term-missing --cov=engramcp -m "unit or integration" tests/
       - name: Scenario evals (non real_llm)
         run: make test-scenarios
+      - name: Calibrate eval thresholds
+        run: uv run --frozen python scripts/calibrate_eval_thresholds.py --metrics reports/scenario-metrics.jsonl --output reports/eval-calibration.json
       - name: Upload scenario JUnit report
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: pytest-scenarios-report
           path: reports/pytest-scenarios.xml
+      - name: Upload scenario metrics + calibration artifacts
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: scenario-calibration-report
+          path: |
+            reports/scenario-metrics.jsonl
+            reports/eval-calibration.json

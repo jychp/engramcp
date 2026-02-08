@@ -18,6 +18,8 @@ from engramcp.server import _get_wm
 from engramcp.server import configure
 from engramcp.server import mcp
 from engramcp.server import shutdown
+from tests.scenarios.helpers.metrics import emit_scenario_metric
+from tests.scenarios.helpers.metrics import THRESHOLDS
 from tests.scenarios.helpers.reporting import build_failure_context
 
 pytestmark = [pytest.mark.tier2]
@@ -113,8 +115,21 @@ class TestTier2CuratedRegression:
             response=data,
             fragments=fragments,
         )
+
+        emit_scenario_metric(
+            scenario=scenario_name,
+            tier="tier2",
+            metric_class="contradiction_coverage",
+            values={
+                "working_memory_hits": data["meta"]["working_memory_hits"],
+                "graph_hits": data["meta"]["graph_hits"],
+                "returned_memories": len(data["memories"]),
+                "contradictions": len(data["contradictions"]),
+            },
+        )
+
         assert data["meta"]["working_memory_hits"] == 0, ctx
-        assert data["meta"]["graph_hits"] >= 1, ctx
+        assert data["meta"]["graph_hits"] >= THRESHOLDS.min_graph_hits, ctx
         assert len(data["memories"]) >= 2, ctx
         assert any("John Doe" in memory["content"] for memory in data["memories"]), ctx
-        assert len(data["contradictions"]) >= 1, ctx
+        assert len(data["contradictions"]) >= THRESHOLDS.min_contradictions, ctx

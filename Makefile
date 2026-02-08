@@ -1,15 +1,20 @@
-.PHONY: test test-scenarios test-scenarios-tier2 test-real-llm-evals
+.PHONY: test test-scenarios test-scenarios-tier2 test-real-llm-evals calibrate-eval-thresholds
 
 test:
 	UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/.uv-cache} uv run pytest -q
 
 test-scenarios:
 	@mkdir -p reports
-	UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/.uv-cache} uv run pytest tests/scenarios -m "scenario and not real_llm" -ra --tb=short --maxfail=1 --durations=10 --junitxml=reports/pytest-scenarios.xml
+	@rm -f reports/scenario-metrics.jsonl reports/eval-calibration.json
+	ENGRAMCP_SCENARIO_METRICS_PATH=reports/scenario-metrics.jsonl UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/.uv-cache} uv run pytest tests/scenarios -m "scenario and not real_llm" -ra --tb=short --maxfail=1 --durations=10 --junitxml=reports/pytest-scenarios.xml
 
 test-scenarios-tier2:
 	@mkdir -p reports
-	UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/.uv-cache} uv run pytest tests/scenarios -m "scenario and tier2 and not real_llm" -ra --tb=short --maxfail=1 --durations=10 --junitxml=reports/pytest-scenarios-tier2.xml
+	@rm -f reports/scenario-metrics-tier2.jsonl
+	ENGRAMCP_SCENARIO_METRICS_PATH=reports/scenario-metrics-tier2.jsonl UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/.uv-cache} uv run pytest tests/scenarios -m "scenario and tier2 and not real_llm" -ra --tb=short --maxfail=1 --durations=10 --junitxml=reports/pytest-scenarios-tier2.xml
+
+calibrate-eval-thresholds: test-scenarios
+	UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/.uv-cache} uv run python scripts/calibrate_eval_thresholds.py --metrics reports/scenario-metrics.jsonl --output reports/eval-calibration.json
 
 test-real-llm-evals:
 	@if [ "$${ENGRAMCP_RUN_REAL_LLM_EVALS:-0}" != "1" ]; then \

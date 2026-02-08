@@ -50,6 +50,9 @@ _ALLOWED_REL_TYPES = {
 }
 _ALLOWED_DIRECTIONS = {"outgoing", "incoming", "both"}
 _QUERY_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+_RETRIEVAL_MEMORY_LABELS = (
+    "Fact|Event|Observation|Decision|Outcome|Pattern|Concept|Rule"
+)
 
 
 def _require_allowed(value: str, allowed: set[str], *, field_name: str) -> str:
@@ -297,9 +300,9 @@ class GraphStore:
         return await self._run_multi_node_query(query, r=reliability.value)
 
     async def find_claim_nodes(self) -> list[MemoryNode]:
-        """Return all claim nodes (Fact/Event/Observation/Decision/Outcome)."""
+        """Return all retrieval-eligible memory nodes."""
         query = (
-            "MATCH (n:Fact|Event|Observation|Decision|Outcome) "
+            f"MATCH (n:{_RETRIEVAL_MEMORY_LABELS}) "
             "RETURN properties(n) AS props, labels(n) AS labels"
         )
         return await self._run_multi_node_query(query)
@@ -307,12 +310,12 @@ class GraphStore:
     async def find_claim_nodes_by_content(
         self, query: str, *, limit: int = 20
     ) -> list[MemoryNode]:
-        """Find claim nodes whose textual ``content`` matches a query substring."""
+        """Find retrieval-eligible nodes whose ``content`` matches query tokens."""
         tokens = _tokenize_query(query)
         if not tokens:
             return []
         cypher = (
-            "MATCH (n:Fact|Event|Observation|Decision|Outcome) "
+            f"MATCH (n:{_RETRIEVAL_MEMORY_LABELS}) "
             "WHERE ANY(token IN $search_tokens WHERE toLower(n.content) CONTAINS token) "
             "RETURN properties(n) AS props, labels(n) AS labels "
             "ORDER BY n.updated_at DESC "
@@ -343,7 +346,7 @@ class GraphStore:
             return []
 
         node_query = (
-            "MATCH (n:Fact|Event|Observation|Decision|Outcome) "
+            f"MATCH (n:{_RETRIEVAL_MEMORY_LABELS}) "
             "WHERE ANY(token IN $search_tokens WHERE toLower(n.content) CONTAINS token) "
             "RETURN properties(n) AS props, labels(n) AS labels "
             "ORDER BY n.updated_at DESC "

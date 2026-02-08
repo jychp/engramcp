@@ -8,6 +8,7 @@ from engramcp.config import AuditConfig
 from engramcp.config import ConsolidationConfig
 from engramcp.config import EntityResolutionConfig
 from engramcp.config import LLMConfig
+from engramcp.config import scenario_eval_consolidation_config
 
 
 # ---------------------------------------------------------------------------
@@ -42,6 +43,12 @@ class TestConsolidationConfig:
         assert cfg.extraction_retry_backoff_seconds == 0.0
         assert cfg.retry_on_invalid_json is True
         assert cfg.retry_on_schema_validation_error is True
+
+    def test_scenario_eval_profile(self):
+        cfg = scenario_eval_consolidation_config()
+        assert cfg.fragment_threshold == 4
+        assert cfg.pattern_min_occurrences == 2
+        assert cfg.extraction_batch_size == 5
 
 
 # ---------------------------------------------------------------------------

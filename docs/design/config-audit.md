@@ -24,6 +24,9 @@ engine sub-sprints depend on:
 - **No env-var loading or YAML parsing** — configuration is just data with
   defaults. Loading/parsing belongs to a future integration layer (YAGNI).
 - **One dataclass per subsystem** — keeps concerns cleanly separated.
+- **Explicit scenario-eval profile helper** — `scenario_eval_consolidation_config()`
+  provides deterministic eval-only consolidation tuning (`4/2`) without changing
+  production defaults (`10/3`).
 
 ### Dataclasses
 
