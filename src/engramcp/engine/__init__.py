@@ -1,5 +1,8 @@
 """Engine domain — processing engines (Layers 3-6)."""
 
+from engramcp.engine.concepts import CandidateStatus
+from engramcp.engine.concepts import ConceptCandidate
+from engramcp.engine.concepts import ConceptRegistry
 from engramcp.engine.confidence import CascadeResult
 from engramcp.engine.confidence import ConfidenceConfig
 from engramcp.engine.confidence import ConfidenceEngine
@@ -7,6 +10,9 @@ from engramcp.engine.confidence import CredibilityAssessment
 from engramcp.engine.confidence import PropagatedRating
 from engramcp.engine.consolidation import ConsolidationPipeline
 from engramcp.engine.consolidation import ConsolidationRunResult
+from engramcp.engine.demand import DemandSignal
+from engramcp.engine.demand import QueryDemandTracker
+from engramcp.engine.demand import QueryPattern
 from engramcp.engine.extraction import ExtractionEngine
 from engramcp.engine.extraction import LLMAdapter
 from engramcp.engine.extraction import LLMError
@@ -18,11 +24,15 @@ from engramcp.engine.schemas import TemporalInfo
 
 __all__ = [
     "CascadeResult",
+    "CandidateStatus",
     "ConfidenceConfig",
     "ConfidenceEngine",
+    "ConceptCandidate",
+    "ConceptRegistry",
     "ConsolidationPipeline",
     "ConsolidationRunResult",
     "CredibilityAssessment",
+    "DemandSignal",
     "ExtractedClaim",
     "ExtractedEntity",
     "ExtractedRelation",
@@ -31,5 +41,7 @@ __all__ = [
     "LLMAdapter",
     "LLMError",
     "PropagatedRating",
+    "QueryDemandTracker",
+    "QueryPattern",
     "TemporalInfo",
 ]

@@ -77,7 +77,7 @@ Agent → correct_memory → [Graph mutations + cascade]
 
 | Layer | Module | Description |
 |---|---|---|
-| 7 | `server.py` | MCP interface + consolidation assembly/wiring (send_memory, get_memory, correct_memory) |
+| 7 | `server.py` | MCP interface + consolidation assembly/wiring + retrieval demand tracking hooks (send_memory, get_memory, correct_memory) |
 | 6 | `engine/retrieval.py` | Graph traversal, scoring, synthesis |
 | 5 | `engine/concepts.py`, `engine/demand.py` | Concept emergence from retrieval demand |
 | 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline, LLM extraction, contradiction detection, abstraction |
@@ -125,11 +125,13 @@ src/engramcp/
 ├── engine/                 # Processing engines (Layers 3-6)
 │   ├── __init__.py         # Re-exports ConfidenceEngine, ExtractionEngine, etc.
 │   ├── confidence.py       # Confidence calculation & propagation
+│   ├── concepts.py         # Concept candidate registry + lifecycle states
+│   ├── demand.py           # Retrieval query pattern tracking + threshold signal emission
 │   ├── schemas.py          # Extraction result models
 │   ├── extraction.py       # LLMAdapter protocol + ExtractionEngine
 │   ├── prompt_builder.py   # Dynamic extraction prompt
 │   ├── consolidation.py    # Consolidation pipeline orchestrator + contradiction/abstraction stages
-│   └── future modules      # concepts.py, demand.py, retrieval.py
+│   └── future modules      # retrieval.py
 └── audit/                  # Audit logging
     ├── __init__.py         # Re-exports AuditLogger, AuditEvent, AuditEventType
     ├── schemas.py          # AuditEventType enum + AuditEvent model
@@ -152,6 +154,7 @@ src/engramcp/
 - **MCP errors**: tool responses may include `error_code` and `message` when rejected/errored
 - **DDD (Domain-Driven Design)**: each domain has bounded contexts with `models/`, `memory/`, `graph/`, `engine/`, `audit/` modules. Domain logic stays in its module; cross-cutting concerns use explicit interfaces.
 - **Domain package structure**: each domain follows `schemas.py` (Pydantic models), `store.py` (DB access), `__init__.py` (business logic + re-exports). External code imports from the domain package (e.g. `from engramcp.memory import MemoryFragment`).
+- **Inline code markers**: use `# TODO:` for intentionally deferred work, and `# DEPRECATED: <reason>` when code is kept only for backward compatibility.
 
 ---
 

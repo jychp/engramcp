@@ -16,9 +16,12 @@ from engramcp.audit import AuditLogger
 from engramcp.config import AuditConfig
 from engramcp.config import ConsolidationConfig
 from engramcp.config import EntityResolutionConfig
+from engramcp.engine import ConceptRegistry
 from engramcp.engine import ConsolidationPipeline
 from engramcp.engine import ExtractionEngine
 from engramcp.engine import LLMAdapter
+from engramcp.engine import QueryDemandTracker
+from engramcp.engine import QueryPattern
 from engramcp.graph import EntityResolver
 from engramcp.graph import GraphStore
 from engramcp.graph import init_schema
@@ -46,6 +49,8 @@ mcp = FastMCP("EngraMCP")
 _wm: WorkingMemory | None = None
 _graph_driver: AsyncDriver | None = None
 _consolidation_pipeline: ConsolidationPipeline | None = None
+_query_demand_tracker: QueryDemandTracker = QueryDemandTracker()
+_concept_registry: ConceptRegistry = ConceptRegistry()
 
 
 class _NoopLLMAdapter(LLMAdapter):
@@ -95,7 +100,7 @@ async def configure(
 
     Must be called before the MCP tools can function.
     """
-    global _wm, _graph_driver, _consolidation_pipeline
+    global _wm, _graph_driver, _consolidation_pipeline, _query_demand_tracker, _concept_registry
     if _wm is not None:
         await _wm.close()
     if _graph_driver is not None:
@@ -141,11 +146,13 @@ async def configure(
         flush_threshold=threshold,
         on_flush=consolidation_callback,
     )
+    _query_demand_tracker = QueryDemandTracker()
+    _concept_registry = ConceptRegistry()
 
 
 async def shutdown() -> None:
     """Close backend clients and release server resources."""
-    global _wm, _graph_driver, _consolidation_pipeline
+    global _wm, _graph_driver, _consolidation_pipeline, _query_demand_tracker, _concept_registry
     if _wm is not None:
         await _wm.close()
         _wm = None
@@ -153,6 +160,8 @@ async def shutdown() -> None:
         await _graph_driver.close()
         _graph_driver = None
     _consolidation_pipeline = None
+    _query_demand_tracker = QueryDemandTracker()
+    _concept_registry = ConceptRegistry()
 
 
 async def _reset_working_memory() -> None:
@@ -166,6 +175,46 @@ def _get_wm() -> WorkingMemory:
     if _wm is None:
         raise RuntimeError("Working memory not configured. Call configure() first.")
     return _wm
+
+
+def _get_query_demand_count(
+    *,
+    node_types: list[str] | None = None,
+    properties: list[str] | None = None,
+) -> int:
+    """Return tracked count for a normalized retrieval shape (test helper)."""
+    pattern = QueryPattern.from_parts(node_types=node_types, properties=properties)
+    return _query_demand_tracker.count(pattern)
+
+
+def _get_concept_candidate_count() -> int:
+    """Return current number of tracked concept candidates (test helper)."""
+    return _concept_registry.candidate_count()
+
+
+def _record_retrieval_shape(
+    *,
+    matches: list[MemoryFragment],
+    compact: bool,
+    include_sources: bool,
+    include_contradictions: bool,
+) -> None:
+    """Track retrieval call shape from observed types and selected fields."""
+    node_types = [m.dynamic_type or m.type for m in matches]
+    properties = ["content", "confidence", "min_confidence"]
+
+    if not compact:
+        properties.extend(["participants", "causal_chain"])
+        if include_sources:
+            properties.append("sources")
+    if include_contradictions:
+        properties.append("contradictions")
+
+    signal = _query_demand_tracker.record_call(
+        node_types=node_types, properties=properties
+    )
+    if signal is not None:
+        _concept_registry.observe_signal(signal)
 
 
 # ---------------------------------------------------------------------------
@@ -330,6 +379,12 @@ async def get_memory(
         )
 
     matches = await wm.search(validated.query, min_confidence=validated.min_confidence)
+    _record_retrieval_shape(
+        matches=matches,
+        compact=validated.compact,
+        include_sources=validated.include_sources,
+        include_contradictions=validated.include_contradictions,
+    )
 
     total_found = len(matches)
     truncated = total_found > validated.limit
