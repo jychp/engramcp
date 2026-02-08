@@ -291,6 +291,19 @@ class GraphStore:
         )
         return await self._run_multi_node_query(query)
 
+    async def find_claim_nodes_by_content(
+        self, query: str, *, limit: int = 20
+    ) -> list[MemoryNode]:
+        """Find claim nodes whose textual ``content`` matches a query substring."""
+        cypher = (
+            "MATCH (n:Fact|Event|Observation|Decision|Outcome) "
+            "WHERE toLower(n.content) CONTAINS toLower($search_query) "
+            "RETURN properties(n) AS props, labels(n) AS labels "
+            "ORDER BY n.updated_at DESC "
+            "LIMIT $limit"
+        )
+        return await self._run_multi_node_query(cypher, search_query=query, limit=limit)
+
     async def find_contradictions_unresolved(self) -> list[dict]:
         """Find all unresolved CONTRADICTS relationships.
 

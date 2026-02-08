@@ -2,7 +2,7 @@
 
 > **Layer**: 6 (`engine/retrieval.py`)
 > **Status**: Foundation implemented
-> **Scope**: WM-first selection, graph fallback stub, demand tracking hooks
+> **Scope**: WM-first selection, graph content fallback, demand tracking hooks
 
 ---
 
@@ -14,7 +14,7 @@ Current strategy:
 1. Query `WorkingMemory` first (`search(query, min_confidence=...)`)
 2. Apply response shaping (`compact`, `include_sources`, `limit`)
 3. Track retrieval-demand pattern for Layer 5 concept emergence
-4. Fallback to graph retrieval stub when working memory has no match
+4. Fallback to graph content search when working memory has no match
 
 This preserves MCP contract behavior while opening a clean extension point for graph traversal and scoring evolution.
 
@@ -41,19 +41,20 @@ Layer 6 introduces a scoring protocol:
   - `score_graph_memory(memory) -> float`
 - Default implementation: `RecencyConfidenceScorer`
   - Working-memory rank = recency + tiny confidence bonus
-  - Graph fallback rank = confidence bonus only (no recency signal yet)
+  - Graph fallback rank = confidence bonus only (no relation-confidence projection yet)
 
 This keeps current ordering stable while exposing a swappable ranking interface for future retrieval quality work.
 
 ---
 
-## Graph Fallback Stub
+## Graph Fallback
 
-Current fallback is intentionally minimal:
+Current fallback is query-aware but intentionally limited:
 
-- Uses `GraphRetriever.find_claim_nodes()`
+- Uses `GraphStore.find_claim_nodes_by_content(query, limit)` when available
+- Falls back to `find_claim_nodes()` for legacy retrievers, then applies in-engine content filtering
 - Converts only nodes carrying `id` and `content` into `MemoryEntry`
-- Returns no contradictions or source-chain expansion yet
+- Returns no contradictions, source-chain expansion, or depth traversal yet
 
 This is a placeholder for full traversal (depth-aware causal traversal, contradiction expansion, and confidence-aware synthesis).
 
