@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Protocol
 
 from engramcp.engine.concepts import ConceptRegistry
@@ -18,6 +19,7 @@ from engramcp.models.schemas import GetMemoryResult
 from engramcp.models.schemas import MemoryEntry
 from engramcp.models.schemas import MetaInfo
 from engramcp.models.schemas import SourceEntry
+from engramcp.observability import record_latency
 
 
 class RetrievalScorer(Protocol):
@@ -70,6 +72,7 @@ class RetrievalEngine:
 
     async def retrieve(self, request: GetMemoryInput) -> GetMemoryResult:
         """Retrieve memories using WM-first selection with graph fallback."""
+        start = perf_counter()
         wm_matches = await self._wm.search(
             request.query, min_confidence=request.min_confidence
         )
@@ -98,6 +101,7 @@ class RetrievalEngine:
         if remaining > 0 and graph_matches:
             memories.extend(graph_matches[:remaining])
 
+        elapsed_ms = (perf_counter() - start) * 1000
         meta = MetaInfo(
             query=request.query,
             total_found=total_found,
@@ -105,8 +109,14 @@ class RetrievalEngine:
             truncated=truncated,
             max_depth_used=request.max_depth,
             min_confidence_applied=request.min_confidence,
+            retrieval_ms=int(elapsed_ms),
             working_memory_hits=len(selected_wm),
             graph_hits=min(len(graph_matches), max(remaining, 0)),
+        )
+        record_latency(
+            operation="retrieval_engine.retrieve",
+            duration_ms=elapsed_ms,
+            ok=True,
         )
         return GetMemoryResult(
             memories=memories,

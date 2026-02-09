@@ -230,6 +230,11 @@ make verify-scenario-ground-truth-only
 `make verify-scenario-ground-truth-only` reuses existing metrics (no scenario re-run).
 Optional: pass `METRICS_PATH=...` to point at a custom combined metrics JSONL.
 
+Latency/perf notes:
+- `get_memory` responses include `meta.retrieval_ms`.
+- In-process latency aggregates are tracked for `send_memory`, `get_memory`, consolidation runs, and retrieval engine calls.
+- CI includes a bounded retrieval perf integration test on a deep/branching graph topology.
+
 Optional real-LLM end-to-end evals (opt-in, requires API key and may incur cost):
 
 ```bash

@@ -115,6 +115,7 @@ src/engramcp/
 ├── server.py               # FastMCP server, 3 tools
 ├── config.py               # LLM, consolidation, entity resolution, audit config
 ├── evaluation.py           # Shared scenario-eval pass/fail thresholds
+├── observability.py        # In-process latency metrics recorder + snapshots
 ├── models/                 # Shared data models
 │   ├── __init__.py         # Agent fingerprinting + domain logic + re-exports
 │   ├── schemas.py          # Pydantic input/output schemas for MCP tools
@@ -170,6 +171,8 @@ src/engramcp/
 - **Ground-truth verification**: use `make verify-scenario-ground-truth` to run Tier 2 + Tier 3 scenario evals and verify fixtures, or `make verify-scenario-ground-truth-only` to validate against an existing metrics JSONL (`METRICS_PATH=...`). Verification covers Tier 2 scenario metric coverage (`tests/scenarios/fixtures/ground_truth_tier2.json`) and Tier 3 subset structure/runtime metrics plus explicit negative samples (`tests/scenarios/fixtures/ground_truth_tier3_flight_logs_subset.json`)
 - **Ground-truth CI gate**: `checks.yml` includes a dedicated `python-ground-truth` job that runs Tier 2 + Tier 3 scenario evals via `make verify-scenario-ground-truth` and uploads `reports/ground-truth-verification.json` plus Tier 2/Tier 3 JUnit + combined metrics artifacts for debugging
 - **Scenario metrics/calibration artifacts**: CI-safe scenario runs emit JSONL metrics (`reports/scenario-metrics.jsonl`) and calibration reports (`reports/eval-calibration.json`) used to track pass/fail metric classes and threshold recommendations
+- **Latency observability**: in-process latency aggregates are recorded for `mcp.send_memory`, `mcp.get_memory`, `retrieval_engine.retrieve`, and `consolidation.run` via `observability.py` (with `latency_metrics_snapshot()`/`reset_latency_metrics()` for tests)
+- **Retrieval perf guardrail**: `tests/integration/test_retrieval_performance.py` enforces a bounded latency budget on deep/branching graph retrieval in CI (`unit or integration`)
 - **Real-LLM CI opt-in**: `checks.yml` contains a dedicated real-provider scenario job gated to manual dispatch on `main` (`workflow_dispatch` input) and GitHub Environment `real-llm-evals` credentials, with concurrency control to avoid duplicate cost runs
 - **Real-LLM run metadata artifacts**: provider-backed scenario runs emit `reports/scenario-metrics-real-llm.jsonl` including `model_used` for traceability
 - **Confidence**: NATO two-dimensional rating (letter = source reliability, number = credibility)

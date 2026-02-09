@@ -9,9 +9,17 @@ import pytest
 import engramcp.server as server_module
 from engramcp.engine.consolidation import ConsolidationRunResult
 from engramcp.memory.schemas import MemoryFragment
+from engramcp.observability import latency_metrics_snapshot
+from engramcp.observability import reset_latency_metrics
 
 
 class TestRunConsolidation:
+    @pytest.fixture(autouse=True)
+    def _reset_latency(self):
+        reset_latency_metrics()
+        yield
+        reset_latency_metrics()
+
     async def test_errors_without_mutation_raise_and_keep_fragments(self, monkeypatch):
         pipeline = AsyncMock()
         pipeline.run.return_value = ConsolidationRunResult(
@@ -29,6 +37,9 @@ class TestRunConsolidation:
             await server_module._run_consolidation(fragments)
 
         wm.delete.assert_not_awaited()
+        metrics = latency_metrics_snapshot()["consolidation.run"]
+        assert metrics["count"] == 1
+        assert metrics["error_count"] == 1
 
     async def test_errors_with_mutation_delete_fragments(self, monkeypatch):
         pipeline = AsyncMock()
@@ -52,3 +63,6 @@ class TestRunConsolidation:
         assert wm.delete.await_count == 2
         wm.delete.assert_any_await("mem-1")
         wm.delete.assert_any_await("mem-2")
+        metrics = latency_metrics_snapshot()["consolidation.run"]
+        assert metrics["count"] == 1
+        assert metrics["error_count"] == 0
