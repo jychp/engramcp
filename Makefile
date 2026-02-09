@@ -1,8 +1,12 @@
-.PHONY: test test-scenarios test-scenarios-tier2 test-scenarios-tier3 test-real-llm-evals test-scenarios-real-llm calibrate-eval-thresholds verify-scenario-ground-truth verify-scenario-ground-truth-only
+.PHONY: test test-retrieval-perf test-scenarios test-scenarios-tier2 test-scenarios-tier3 test-real-llm-evals test-scenarios-real-llm calibrate-eval-thresholds verify-scenario-ground-truth verify-scenario-ground-truth-only
 
 # Run the default pytest suite quickly.
 test:
 	UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/.uv-cache} uv run pytest -q
+
+# Run only the retrieval deep/branching performance guardrail test.
+test-retrieval-perf:
+	UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/.uv-cache} uv run pytest tests/integration/test_retrieval_performance.py -ra --tb=short --durations=10
 
 # Run all CI-safe scenario tests (excludes real_llm) and emit scenario metrics.
 test-scenarios:

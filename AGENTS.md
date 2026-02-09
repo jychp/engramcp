@@ -46,6 +46,7 @@ When exploring external projects for patterns or reference, clone them into `ext
 | [Entity Resolution](docs/design/entity-resolution.md) | Layer 4 design: three-level resolver, normalizer, scorer, merge executor, anti-patterns |
 | [Consolidation Pipeline](docs/design/consolidation-pipeline.md) | Layer 4: async trigger wiring, extraction integration, idempotent claim/source consolidation, contradiction detection, and abstraction stages |
 | [Retrieval Engine](docs/design/retrieval.md) | Layer 6 design: WM-first retrieval service, scoring protocol, bounded graph-context fallback (`max_depth`) across claim + derived nodes, demand tracking hooks |
+| [Observability](docs/design/observability.md) | In-process latency instrumentation model, operation keys, retrieval latency semantics, and perf guardrail scope |
 | [Evaluation Scenarios](docs/design/evaluation-scenarios.md) | Tiered eval strategy (Tier 1/2/3), scenario layout under `tests/scenarios/`, markers, and CI/reporting conventions |
 
 ### Draft References (Archive / Migration Input)
@@ -168,6 +169,7 @@ src/engramcp/
 - **Real-LLM test execution policy**: always ask the user for explicit confirmation before running real-LLM evals (`ENGRAMCP_RUN_REAL_LLM_EVALS=1`), even when `.env` is present and fully configured
 - **Tier 3 semi-real baseline**: `tests/scenarios/test_tier3_flight_logs_regression.py` validates flight-log subset ingestion/retrieval and emits Tier 3 quality proxy metrics
 - **Scenario command targets**: use `make test-scenarios` for CI-safe evals (non-`real_llm`), `make test-scenarios-tier2` for curated Tier 2 iteration, `make test-scenarios-tier3` for Tier 3 iteration, `make calibrate-eval-thresholds` to generate calibration outputs from scenario metrics, and `make test-real-llm-evals` (or alias `make test-scenarios-real-llm`) for explicit opt-in provider-backed runs
+- **Perf command target**: use `make test-retrieval-perf` to run only the deep/branching retrieval latency guardrail integration test
 - **Ground-truth verification**: use `make verify-scenario-ground-truth` to run Tier 2 + Tier 3 scenario evals and verify fixtures, or `make verify-scenario-ground-truth-only` to validate against an existing metrics JSONL (`METRICS_PATH=...`). Verification covers Tier 2 scenario metric coverage (`tests/scenarios/fixtures/ground_truth_tier2.json`) and Tier 3 subset structure/runtime metrics plus explicit negative samples (`tests/scenarios/fixtures/ground_truth_tier3_flight_logs_subset.json`)
 - **Ground-truth CI gate**: `checks.yml` includes a dedicated `python-ground-truth` job that runs Tier 2 + Tier 3 scenario evals via `make verify-scenario-ground-truth` and uploads `reports/ground-truth-verification.json` plus Tier 2/Tier 3 JUnit + combined metrics artifacts for debugging
 - **Scenario metrics/calibration artifacts**: CI-safe scenario runs emit JSONL metrics (`reports/scenario-metrics.jsonl`) and calibration reports (`reports/eval-calibration.json`) used to track pass/fail metric classes and threshold recommendations

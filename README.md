@@ -204,6 +204,7 @@ EngraMCP follows a layered architecture from MCP interface to storage/consolidat
 - MCP contract: `docs/design/mcp-interface.md`
 - Working memory: `docs/design/working-memory.md`
 - Graph store: `docs/design/graph-store.md`
+- Observability: `docs/design/observability.md`
 - Evaluation tiers and structure: `docs/design/evaluation-scenarios.md`
 
 ## Development
@@ -214,6 +215,7 @@ uv run pre-commit run --all-files
 make test-scenarios
 make test-scenarios-tier2
 make test-scenarios-tier3
+make test-retrieval-perf
 make test-scenarios-real-llm
 make calibrate-eval-thresholds
 make verify-scenario-ground-truth

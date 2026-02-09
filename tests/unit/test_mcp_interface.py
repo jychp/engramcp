@@ -385,6 +385,18 @@ class TestGetMemory:
         assert metrics["error_count"] == 0
         assert metrics["last_ms"] >= 0
 
+    async def test_records_get_memory_latency_error_metric(self, mcp_client):
+        reset_latency_metrics()
+        result = await mcp_client.call_tool(
+            "get_memory", {"query": "anything", "min_confidence": "ZZ"}
+        )
+        data = _parse(result)
+        assert data["status"] == "error"
+        metrics = latency_metrics_snapshot()["mcp.get_memory"]
+        assert metrics["count"] == 1
+        assert metrics["error_count"] == 1
+        assert metrics["last_ms"] >= 0
+
 
 # -----------------------------------------------------------------------
 # correct_memory
