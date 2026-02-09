@@ -88,6 +88,35 @@ class TestCalibrateEvalThresholdsScript:
                     "contradictions": 0,
                 },
             },
+            {
+                "scenario": "s7",
+                "tier": "tier3",
+                "metric_class": "extraction_precision_recall_proxy",
+                "values": {
+                    "precision_proxy": 0.95,
+                    "recall_proxy": 0.95,
+                },
+            },
+            {
+                "scenario": "s8",
+                "tier": "tier3",
+                "metric_class": "entity_merge_precision",
+                "values": {
+                    "false_merge_count": 0,
+                    "false_split_count": 0,
+                },
+            },
+            {
+                "scenario": "s9",
+                "tier": "tier3",
+                "metric_class": "retrieval_usefulness",
+                "values": {
+                    "graph_hits": 2,
+                    "returned_memories": 2,
+                    "citation_hits": 2,
+                    "contradictions": 0,
+                },
+            },
         ]
         _write_metrics(metrics_path, rows)
 
@@ -128,5 +157,8 @@ class TestCalibrateEvalThresholdsScript:
             "contradiction_coverage",
             "corroboration",
             "derivation_traceability",
+            "entity_merge_precision",
+            "extraction_precision_recall_proxy",
+            "retrieval_usefulness",
             "timeline_change_tracking",
         }

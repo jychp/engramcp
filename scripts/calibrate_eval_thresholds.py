@@ -96,6 +96,26 @@ def _metric_pass(metric: dict) -> bool:
             and values.get("contradictions", 0)
             <= THRESHOLDS.max_contradictions_for_temporal_evolution
         )
+    if cls == "extraction_precision_recall_proxy":
+        return (
+            values.get("precision_proxy", 0.0)
+            >= THRESHOLDS.min_extraction_precision_proxy
+            and values.get("recall_proxy", 0.0)
+            >= THRESHOLDS.min_extraction_recall_proxy
+        )
+    if cls == "entity_merge_precision":
+        return (
+            values.get("false_merge_count", 0) <= THRESHOLDS.max_false_merges
+            and values.get("false_split_count", 0) <= THRESHOLDS.max_false_splits
+        )
+    if cls == "retrieval_usefulness":
+        return (
+            values.get("graph_hits", 0) >= THRESHOLDS.min_graph_hits
+            and values.get("returned_memories", 0) >= THRESHOLDS.min_memories
+            and values.get("citation_hits", 0) >= THRESHOLDS.min_citation_hits
+            and values.get("contradictions", 0)
+            <= THRESHOLDS.max_contradictions_for_tier3_retrieval
+        )
     return False
 
 
@@ -107,6 +127,9 @@ def _aggregate_metrics(rows: list[dict]) -> dict:
         "confidence_progression",
         "derivation_traceability",
         "timeline_change_tracking",
+        "extraction_precision_recall_proxy",
+        "entity_merge_precision",
+        "retrieval_usefulness",
     }
 
     by_class: dict[str, list[dict]] = {}

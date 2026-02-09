@@ -85,10 +85,30 @@ def _metric_pass(metric: dict) -> bool:
             and values.get("contradictions", 0)
             <= THRESHOLDS.max_contradictions_for_temporal_evolution
         )
+    if cls == "extraction_precision_recall_proxy":
+        return (
+            values.get("precision_proxy", 0.0)
+            >= THRESHOLDS.min_extraction_precision_proxy
+            and values.get("recall_proxy", 0.0)
+            >= THRESHOLDS.min_extraction_recall_proxy
+        )
+    if cls == "entity_merge_precision":
+        return (
+            values.get("false_merge_count", 0) <= THRESHOLDS.max_false_merges
+            and values.get("false_split_count", 0) <= THRESHOLDS.max_false_splits
+        )
+    if cls == "retrieval_usefulness":
+        return (
+            values.get("graph_hits", 0) >= THRESHOLDS.min_graph_hits
+            and values.get("returned_memories", 0) >= THRESHOLDS.min_memories
+            and values.get("citation_hits", 0) >= THRESHOLDS.min_citation_hits
+            and values.get("contradictions", 0)
+            <= THRESHOLDS.max_contradictions_for_tier3_retrieval
+        )
     return False
 
 
-def verify_tier2_ground_truth(*, metrics_rows: list[dict], tier2_ground_truth: dict) -> dict:
+def _verify_metric_requirements(*, metrics_rows: list[dict], scenarios: list[dict]) -> dict:
     metrics_by_key: dict[tuple[str, str], list[dict]] = {}
     for row in metrics_rows:
         key = (str(row.get("scenario", "")), str(row.get("metric_class", "")))
@@ -97,7 +117,7 @@ def verify_tier2_ground_truth(*, metrics_rows: list[dict], tier2_ground_truth: d
     missing: list[dict] = []
     failing: list[dict] = []
     checks: list[dict] = []
-    for scenario in tier2_ground_truth.get("scenarios", []):
+    for scenario in scenarios:
         scenario_name = str(scenario["name"])
         for metric_class in scenario.get("required_metric_classes", []):
             key = (scenario_name, str(metric_class))
@@ -126,6 +146,13 @@ def verify_tier2_ground_truth(*, metrics_rows: list[dict], tier2_ground_truth: d
     }
 
 
+def verify_tier2_ground_truth(*, metrics_rows: list[dict], tier2_ground_truth: dict) -> dict:
+    return _verify_metric_requirements(
+        metrics_rows=metrics_rows,
+        scenarios=tier2_ground_truth.get("scenarios", []),
+    )
+
+
 def verify_tier3_subset(*, tier3_ground_truth: dict) -> dict:
     required_fields = [str(field) for field in tier3_ground_truth.get("required_fields", [])]
     records = tier3_ground_truth.get("records", [])
@@ -139,8 +166,12 @@ def verify_tier3_subset(*, tier3_ground_truth: dict) -> dict:
         tier3_ground_truth=tier3_ground_truth,
         required_fields=required_fields,
     )
+    runtime = _verify_metric_requirements(
+        metrics_rows=tier3_ground_truth.get("runtime_metrics_rows", []),
+        scenarios=tier3_ground_truth.get("runtime_scenarios", []),
+    )
     negative_failures = [check for check in negative_checks if not check["passed"]]
-    overall_pass = not structural_errors and not negative_failures
+    overall_pass = not structural_errors and not negative_failures and runtime["overall_pass"]
     return {
         "dataset_name": tier3_ground_truth.get("dataset_name", "unknown"),
         "records_count": len(records),
@@ -148,6 +179,7 @@ def verify_tier3_subset(*, tier3_ground_truth: dict) -> dict:
         "alias_variant_detected": alias_variant_detected,
         "structural_errors": structural_errors,
         "negative_checks": negative_checks,
+        "runtime": runtime,
         "overall_pass": overall_pass,
     }
 
@@ -227,6 +259,9 @@ def run_verification(
     metrics_rows = _load_metrics(metrics_path)
     tier2_ground_truth = _load_json(tier2_ground_truth_path)
     tier3_ground_truth = _load_json(tier3_ground_truth_path)
+    tier3_ground_truth["runtime_metrics_rows"] = [
+        row for row in metrics_rows if str(row.get("tier", "")) == "tier3"
+    ]
 
     tier2 = verify_tier2_ground_truth(
         metrics_rows=metrics_rows, tier2_ground_truth=tier2_ground_truth
