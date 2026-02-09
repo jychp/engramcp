@@ -77,6 +77,34 @@ jobs:
             reports/scenario-metrics.jsonl
             reports/eval-calibration.json
 
+  python-ground-truth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version-file: ".python-version"
+      - name: Install uv
+        uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # v7.2.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Install the project
+        run: uv sync --frozen --all-extras --dev
+      - name: Scenario Tier 2 evals (non real_llm)
+        run: make test-scenarios-tier2
+      - name: Verify scenario ground truth
+        run: make verify-scenario-ground-truth-only
+      - name: Upload ground-truth verification artifact
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: scenario-ground-truth-report
+          path: reports/ground-truth-verification.json
+
   python-real-llm-scenarios:
     if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.run_real_llm_evals == true }}
     runs-on: ubuntu-latest

@@ -1,0 +1,35 @@
+{
+  "tier": "tier2",
+  "scenarios": [
+    {
+      "name": "tier2_curated_travel_conflict",
+      "required_metric_classes": [
+        "contradiction_coverage"
+      ]
+    },
+    {
+      "name": "tier2_curated_corroboration_sources",
+      "required_metric_classes": [
+        "corroboration"
+      ]
+    },
+    {
+      "name": "tier2_curated_corroboration_sources_confidence_progression",
+      "required_metric_classes": [
+        "confidence_progression"
+      ]
+    },
+    {
+      "name": "tier2_curated_derivation_traceability",
+      "required_metric_classes": [
+        "derivation_traceability"
+      ]
+    },
+    {
+      "name": "tier2_curated_corporate_timeline",
+      "required_metric_classes": [
+        "timeline_change_tracking"
+      ]
+    }
+  ]
+}

@@ -19,6 +19,10 @@ class ScenarioThresholds:
     expected_dependent_credibility: str = "3"
     min_rule_entries_for_derivation: int = 1
     expected_rule_derivation_depth: int = 3
+    min_changed_agents_in_timeline: int = 2
+    min_timeline_statements: int = 4
+    min_consistent_agent_hits: int = 1
+    max_contradictions_for_temporal_evolution: int = 0
 
 
 THRESHOLDS = ScenarioThresholds()

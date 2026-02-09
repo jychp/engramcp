@@ -67,12 +67,34 @@ def _metric_pass(metric: dict) -> bool:
             values.get("unique_source_ids", 0)
             >= THRESHOLDS.min_unique_sources_for_corroboration
         )
+    if cls == "confidence_progression":
+        return (
+            values.get("independent_source_count", 0)
+            >= THRESHOLDS.min_independent_sources_for_confidence_upgrade
+            and values.get("independent_credibility")
+            == THRESHOLDS.expected_corroborated_credibility
+            and values.get("dependent_source_count")
+            == THRESHOLDS.expected_dependent_independent_sources
+            and values.get("dependent_credibility")
+            == THRESHOLDS.expected_dependent_credibility
+        )
     if cls == "derivation_traceability":
         return (
             values.get("rule_entries", 0) >= THRESHOLDS.min_rule_entries_for_derivation
             and values.get("rule_derivation_depth")
             == THRESHOLDS.expected_rule_derivation_depth
             and bool(values.get("has_derivation_run_id"))
+        )
+    if cls == "timeline_change_tracking":
+        return (
+            values.get("changed_agents_count", 0)
+            >= THRESHOLDS.min_changed_agents_in_timeline
+            and values.get("timeline_statement_count", 0)
+            >= THRESHOLDS.min_timeline_statements
+            and values.get("carol_consistency_hits", 0)
+            >= THRESHOLDS.min_consistent_agent_hits
+            and values.get("contradictions", 0)
+            <= THRESHOLDS.max_contradictions_for_temporal_evolution
         )
     return False
 
@@ -82,7 +104,9 @@ def _aggregate_metrics(rows: list[dict]) -> dict:
         "retrieval_relevance",
         "contradiction_coverage",
         "corroboration",
+        "confidence_progression",
         "derivation_traceability",
+        "timeline_change_tracking",
     }
 
     by_class: dict[str, list[dict]] = {}

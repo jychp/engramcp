@@ -1,0 +1,21 @@
+{
+  "scenario_name": "tier2_curated_corporate_timeline",
+  "fragments": [
+    "[2025-03-01] Alice: The deadline is March 15.",
+    "[2025-03-01] Bob: I agree with the March 15 deadline.",
+    "[2025-03-02] Carol: Scope concerns may slip the schedule.",
+    "[2025-03-08] Bob: March 20 is more realistic.",
+    "[2025-03-09] Alice: The deadline remains March 15.",
+    "[2025-03-15] David: A blocking bug was found.",
+    "[2025-03-16] Eve: We should cut three features to recover.",
+    "[2025-03-17] Alice: March 20 is fine.",
+    "[2025-03-18] Bob: Let's target March 25 now.",
+    "[2025-03-22] Carol: Scope concerns were valid from week one."
+  ],
+  "query": "who changed their mind about the deadline march 15 march 20 march 25",
+  "expected_changed_agents": [
+    "alice",
+    "bob"
+  ],
+  "expected_consistent_agent": "carol"
+}

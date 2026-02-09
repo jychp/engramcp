@@ -215,11 +215,18 @@ make test-scenarios
 make test-scenarios-tier2
 make test-scenarios-real-llm
 make calibrate-eval-thresholds
+make verify-scenario-ground-truth
+make verify-scenario-ground-truth-only
 ```
 
 `make calibrate-eval-thresholds` also writes:
 - `reports/scenario-metrics.jsonl`
 - `reports/eval-calibration.json`
+
+`make verify-scenario-ground-truth` writes:
+- `reports/ground-truth-verification.json`
+
+`make verify-scenario-ground-truth-only` reuses existing metrics (no scenario re-run).
 
 Optional real-LLM end-to-end evals (opt-in, requires API key and may incur cost):
 
