@@ -23,6 +23,12 @@ class ScenarioThresholds:
     min_timeline_statements: int = 4
     min_consistent_agent_hits: int = 1
     max_contradictions_for_temporal_evolution: int = 0
+    min_extraction_precision_proxy: float = 0.9
+    min_extraction_recall_proxy: float = 0.9
+    max_false_merges: int = 0
+    max_false_splits: int = 0
+    min_citation_hits: int = 1
+    max_contradictions_for_tier3_retrieval: int = 0
 
 
 THRESHOLDS = ScenarioThresholds()

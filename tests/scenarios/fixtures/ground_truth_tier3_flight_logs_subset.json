@@ -41,6 +41,16 @@
     "min_records": 3,
     "requires_alias_variants": true
   },
+  "runtime_scenarios": [
+    {
+      "name": "tier3_flight_logs_subset_runtime",
+      "required_metric_classes": [
+        "extraction_precision_recall_proxy",
+        "entity_merge_precision",
+        "retrieval_usefulness"
+      ]
+    }
+  ],
   "negative_samples": [
     {
       "name": "missing_required_field_destination",

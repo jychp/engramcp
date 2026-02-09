@@ -1,0 +1,26 @@
+{
+  "scenario_name": "tier3_flight_logs_subset_runtime",
+  "fragments": [
+    "2002-01-03 | TEB -> STT | passengers: Jeffrey Epstein; Ghislaine Maxwell; Bill Clinton",
+    "2002-01-10 | STT -> TEB | passengers: Epstein, Jeffrey; GM",
+    "2002-01-15 | TEB -> PBI | passengers: Jeff Epstein; Unnamed Female",
+    "2002-01-22 | STT -> TEB | passengers: Jeffrey Epstein; Ghislaine Maxwell"
+  ],
+  "query": "Summarize Jeffrey Epstein flight-log routes in this subset (including TEB, STT, and PBI) with source-backed entries.",
+  "expected_fact_snippets": [
+    "2002-01-03 from TEB to STT",
+    "2002-01-10 from STT to TEB",
+    "2002-01-15 from TEB to PBI",
+    "2002-01-22 from STT to TEB"
+  ],
+  "expected_core_agents": [
+    "jeffrey epstein",
+    "ghislaine maxwell",
+    "bill clinton"
+  ],
+  "alias_variants": [
+    "epstein, jeffrey",
+    "jeff epstein",
+    "gm"
+  ]
+}

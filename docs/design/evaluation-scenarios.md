@@ -84,7 +84,7 @@ Scenario jobs should produce:
 - JUnit XML report for CI artifact/debugging
 - scenario metrics JSONL (`reports/scenario-metrics.jsonl`) for threshold calibration
 - calibration summary JSON (`reports/eval-calibration.json`) for default/eval-profile recommendations
-- ground-truth verification JSON (`reports/ground-truth-verification.json`) for Tier 2 metric-class coverage and Tier 3 subset structural checks
+- ground-truth verification JSON (`reports/ground-truth-verification.json`) for Tier 2 metric-class coverage and Tier 3 subset structural/runtime checks
 - for opt-in provider runs: `reports/scenario-metrics-real-llm.jsonl` with run metadata (`model_used`)
 
 Recommended command shape:
@@ -106,7 +106,7 @@ Ground-truth verification command:
 make verify-scenario-ground-truth
 ```
 
-Fast verification-only command (reuses existing tier2 metrics):
+Fast verification-only command (reuses an existing metrics file):
 
 ```bash
 make verify-scenario-ground-truth-only
@@ -119,6 +119,9 @@ Current pass/fail metric classes:
 - `confidence_progression`: credibility improves with independent corroboration and regresses when sources become dependent
 - `derivation_traceability`: at least one `Rule` memory with `derivation_depth == 3` and `derivation_run_id` present
 - `timeline_change_tracking`: deadline-position changes detected for expected agents, with no false contradiction inflation on temporal evolution scenarios
+- `extraction_precision_recall_proxy`: Tier 3 extraction quality proxy checks stay above configured minimum precision/recall thresholds
+- `entity_merge_precision`: Tier 3 alias/canonicalization proxy checks keep false-merge and false-split counters under threshold
+- `retrieval_usefulness`: Tier 3 retrieval returns source-backed memories with bounded contradiction noise
 
 ---
 
@@ -131,7 +134,8 @@ Current pass/fail metric classes:
   `tests/scenarios/test_tier2_curated_regression.py`
 - Tier 2: semi-real corporate timeline change-tracking in
   `tests/scenarios/test_tier2_corporate_timeline.py` (derived from archived S9 narrative)
-- Tier 3: pending
+- Tier 3: flight-log subset regression in
+  `tests/scenarios/test_tier3_flight_logs_regression.py`
 
 ---
 
@@ -139,4 +143,4 @@ Current pass/fail metric classes:
 
 - Add Tier 3 ingestion/evaluation harness over real raw dataset slices
 - Add threshold-calibrated pass/fail metrics per tier for Tier 3 datasets
-- Expand Tier 3 subset ground-truth checks from structural/alias baselines to ingestion/retrieval assertions as Tier 3 tests land
+- Expand Tier 3 ground-truth verification from current subset/runtime baseline to broader ingestion/retrieval coverage as additional real-data scenarios land

@@ -47,8 +47,8 @@ def _write_metrics(path: Path, rows: list[dict]) -> None:
 
 
 class TestGroundTruthVerifyScript:
-    def test_returns_zero_for_valid_tier2_and_tier3_inputs(self, tmp_path):
-        metrics_path = tmp_path / "scenario-metrics.jsonl"
+    def test_accepts_combined_metrics_file_for_tier2_and_tier3_runtime(self, tmp_path):
+        metrics_path = tmp_path / "scenario-metrics-tier23.jsonl"
         tier2_path = tmp_path / "ground_truth_tier2.json"
         tier3_path = tmp_path / "ground_truth_tier3.json"
         output_path = tmp_path / "ground-truth-verification.json"
@@ -66,7 +66,36 @@ class TestGroundTruthVerifyScript:
                         "carol_consistency_hits": 1,
                         "contradictions": 0,
                     },
-                }
+                },
+                {
+                    "scenario": "tier3_flight_logs_subset_runtime",
+                    "tier": "tier3",
+                    "metric_class": "extraction_precision_recall_proxy",
+                    "values": {
+                        "precision_proxy": 0.95,
+                        "recall_proxy": 0.95,
+                    },
+                },
+                {
+                    "scenario": "tier3_flight_logs_subset_runtime",
+                    "tier": "tier3",
+                    "metric_class": "entity_merge_precision",
+                    "values": {
+                        "false_merge_count": 0,
+                        "false_split_count": 0,
+                    },
+                },
+                {
+                    "scenario": "tier3_flight_logs_subset_runtime",
+                    "tier": "tier3",
+                    "metric_class": "retrieval_usefulness",
+                    "values": {
+                        "graph_hits": 2,
+                        "returned_memories": 2,
+                        "citation_hits": 2,
+                        "contradictions": 0,
+                    },
+                },
             ],
         )
         _write_json(
@@ -108,6 +137,132 @@ class TestGroundTruthVerifyScript:
                     },
                 ],
                 "expectations": {"min_records": 3, "requires_alias_variants": True},
+                "runtime_scenarios": [
+                    {
+                        "name": "tier3_flight_logs_subset_runtime",
+                        "required_metric_classes": [
+                            "extraction_precision_recall_proxy",
+                            "entity_merge_precision",
+                            "retrieval_usefulness",
+                        ],
+                    }
+                ],
+            },
+        )
+
+        result = _run_script(
+            metrics_path=metrics_path,
+            tier2_path=tier2_path,
+            tier3_path=tier3_path,
+            output_path=output_path,
+        )
+
+        assert result.returncode == 0, result.stderr
+        report = json.loads(output_path.read_text(encoding="utf-8"))
+        assert report["overall_pass"] is True
+        assert report["input_metrics"].endswith("scenario-metrics-tier23.jsonl")
+        assert report["tier3"]["runtime"]["overall_pass"] is True
+
+    def test_returns_zero_for_valid_tier2_and_tier3_inputs(self, tmp_path):
+        metrics_path = tmp_path / "scenario-metrics.jsonl"
+        tier2_path = tmp_path / "ground_truth_tier2.json"
+        tier3_path = tmp_path / "ground_truth_tier3.json"
+        output_path = tmp_path / "ground-truth-verification.json"
+
+        _write_metrics(
+            metrics_path,
+            [
+                {
+                    "scenario": "tier2_curated_corporate_timeline",
+                    "tier": "tier2",
+                    "metric_class": "timeline_change_tracking",
+                    "values": {
+                        "changed_agents_count": 2,
+                        "timeline_statement_count": 4,
+                        "carol_consistency_hits": 1,
+                        "contradictions": 0,
+                    },
+                },
+                {
+                    "scenario": "tier3_flight_logs_subset_runtime",
+                    "tier": "tier3",
+                    "metric_class": "extraction_precision_recall_proxy",
+                    "values": {
+                        "precision_proxy": 0.95,
+                        "recall_proxy": 0.95,
+                    },
+                },
+                {
+                    "scenario": "tier3_flight_logs_subset_runtime",
+                    "tier": "tier3",
+                    "metric_class": "entity_merge_precision",
+                    "values": {
+                        "false_merge_count": 0,
+                        "false_split_count": 0,
+                    },
+                },
+                {
+                    "scenario": "tier3_flight_logs_subset_runtime",
+                    "tier": "tier3",
+                    "metric_class": "retrieval_usefulness",
+                    "values": {
+                        "graph_hits": 2,
+                        "returned_memories": 2,
+                        "citation_hits": 2,
+                        "contradictions": 0,
+                    },
+                },
+            ],
+        )
+        _write_json(
+            tier2_path,
+            {
+                "tier": "tier2",
+                "scenarios": [
+                    {
+                        "name": "tier2_curated_corporate_timeline",
+                        "required_metric_classes": ["timeline_change_tracking"],
+                    }
+                ],
+            },
+        )
+        _write_json(
+            tier3_path,
+            {
+                "tier": "tier3",
+                "dataset_name": "subset",
+                "required_fields": ["flight_date", "origin", "destination", "passengers"],
+                "records": [
+                    {
+                        "flight_date": "2002-01-03",
+                        "origin": "TEB",
+                        "destination": "STT",
+                        "passengers": ["Jeffrey Epstein", "Ghislaine Maxwell"],
+                    },
+                    {
+                        "flight_date": "2002-01-10",
+                        "origin": "STT",
+                        "destination": "TEB",
+                        "passengers": ["Epstein, Jeffrey", "GM"],
+                    },
+                    {
+                        "flight_date": "2002-01-15",
+                        "origin": "TEB",
+                        "destination": "PBI",
+                        "passengers": ["Jeff Epstein"],
+                    },
+                ],
+                "expectations": {"min_records": 3, "requires_alias_variants": True},
+                "runtime_scenarios": [
+                    {
+                        "name": "tier3_flight_logs_subset_runtime",
+                        "required_metric_classes": [
+                            "extraction_precision_recall_proxy",
+                            "entity_merge_precision",
+                            "retrieval_usefulness",
+                        ],
+                    }
+                ],
                 "negative_samples": [
                     {
                         "name": "missing_destination",
@@ -141,6 +296,7 @@ class TestGroundTruthVerifyScript:
         report = json.loads(output_path.read_text(encoding="utf-8"))
         assert report["overall_pass"] is True
         assert report["tier3"]["negative_checks"][0]["passed"] is True
+        assert report["tier3"]["runtime"]["overall_pass"] is True
 
     def test_returns_non_zero_when_tier2_metric_is_missing(self, tmp_path):
         metrics_path = tmp_path / "scenario-metrics.jsonl"
@@ -281,3 +437,109 @@ class TestGroundTruthVerifyScript:
         report = json.loads(output_path.read_text(encoding="utf-8"))
         assert report["overall_pass"] is False
         assert report["tier3"]["negative_checks"][0]["passed"] is False
+
+    def test_returns_non_zero_when_tier3_runtime_metric_is_missing(self, tmp_path):
+        metrics_path = tmp_path / "scenario-metrics.jsonl"
+        tier2_path = tmp_path / "ground_truth_tier2.json"
+        tier3_path = tmp_path / "ground_truth_tier3.json"
+        output_path = tmp_path / "ground-truth-verification.json"
+
+        _write_metrics(
+            metrics_path,
+            [
+                {
+                    "scenario": "tier2_curated_corporate_timeline",
+                    "tier": "tier2",
+                    "metric_class": "timeline_change_tracking",
+                    "values": {
+                        "changed_agents_count": 2,
+                        "timeline_statement_count": 4,
+                        "carol_consistency_hits": 1,
+                        "contradictions": 0,
+                    },
+                },
+                {
+                    "scenario": "tier3_flight_logs_subset_runtime",
+                    "tier": "tier3",
+                    "metric_class": "retrieval_usefulness",
+                    "values": {
+                        "graph_hits": 2,
+                        "returned_memories": 2,
+                        "citation_hits": 2,
+                        "contradictions": 0,
+                    },
+                },
+            ],
+        )
+        _write_json(
+            tier2_path,
+            {
+                "tier": "tier2",
+                "scenarios": [
+                    {
+                        "name": "tier2_curated_corporate_timeline",
+                        "required_metric_classes": ["timeline_change_tracking"],
+                    }
+                ],
+            },
+        )
+        _write_json(
+            tier3_path,
+            {
+                "tier": "tier3",
+                "dataset_name": "subset",
+                "required_fields": ["flight_date", "origin", "destination", "passengers"],
+                "records": [
+                    {
+                        "flight_date": "2002-01-03",
+                        "origin": "TEB",
+                        "destination": "STT",
+                        "passengers": ["Jeffrey Epstein", "Ghislaine Maxwell"],
+                    },
+                    {
+                        "flight_date": "2002-01-10",
+                        "origin": "STT",
+                        "destination": "TEB",
+                        "passengers": ["Epstein, Jeffrey", "GM"],
+                    },
+                    {
+                        "flight_date": "2002-01-15",
+                        "origin": "TEB",
+                        "destination": "PBI",
+                        "passengers": ["Jeff Epstein"],
+                    },
+                ],
+                "expectations": {"min_records": 3, "requires_alias_variants": True},
+                "runtime_scenarios": [
+                    {
+                        "name": "tier3_flight_logs_subset_runtime",
+                        "required_metric_classes": [
+                            "extraction_precision_recall_proxy",
+                            "entity_merge_precision",
+                            "retrieval_usefulness",
+                        ],
+                    }
+                ],
+            },
+        )
+
+        result = _run_script(
+            metrics_path=metrics_path,
+            tier2_path=tier2_path,
+            tier3_path=tier3_path,
+            output_path=output_path,
+        )
+
+        assert result.returncode == 1
+        report = json.loads(output_path.read_text(encoding="utf-8"))
+        assert report["overall_pass"] is False
+        assert report["tier3"]["runtime"]["missing"] == [
+            {
+                "metric_class": "extraction_precision_recall_proxy",
+                "scenario": "tier3_flight_logs_subset_runtime",
+            },
+            {
+                "metric_class": "entity_merge_precision",
+                "scenario": "tier3_flight_logs_subset_runtime",
+            },
+        ]

@@ -213,6 +213,7 @@ uv run pytest
 uv run pre-commit run --all-files
 make test-scenarios
 make test-scenarios-tier2
+make test-scenarios-tier3
 make test-scenarios-real-llm
 make calibrate-eval-thresholds
 make verify-scenario-ground-truth
@@ -227,6 +228,7 @@ make verify-scenario-ground-truth-only
 - `reports/ground-truth-verification.json`
 
 `make verify-scenario-ground-truth-only` reuses existing metrics (no scenario re-run).
+Optional: pass `METRICS_PATH=...` to point at a custom combined metrics JSONL.
 
 Optional real-LLM end-to-end evals (opt-in, requires API key and may incur cost):
 
