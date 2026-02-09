@@ -84,6 +84,7 @@ Scenario jobs should produce:
 - JUnit XML report for CI artifact/debugging
 - scenario metrics JSONL (`reports/scenario-metrics.jsonl`) for threshold calibration
 - calibration summary JSON (`reports/eval-calibration.json`) for default/eval-profile recommendations
+- ground-truth verification JSON (`reports/ground-truth-verification.json`) for Tier 2 metric-class coverage and Tier 3 subset structural checks
 - for opt-in provider runs: `reports/scenario-metrics-real-llm.jsonl` with run metadata (`model_used`)
 
 Recommended command shape:
@@ -99,12 +100,25 @@ Calibration command:
 make calibrate-eval-thresholds
 ```
 
+Ground-truth verification command:
+
+```bash
+make verify-scenario-ground-truth
+```
+
+Fast verification-only command (reuses existing tier2 metrics):
+
+```bash
+make verify-scenario-ground-truth-only
+```
+
 Current pass/fail metric classes:
 - `retrieval_relevance`: `graph_hits >= 1`, returned memories >= 1, keyword hit >= 1
 - `contradiction_coverage`: contradictions >= 1 for contradiction scenarios
 - `corroboration`: unique supporting source IDs >= 2
 - `confidence_progression`: credibility improves with independent corroboration and regresses when sources become dependent
 - `derivation_traceability`: at least one `Rule` memory with `derivation_depth == 3` and `derivation_run_id` present
+- `timeline_change_tracking`: deadline-position changes detected for expected agents, with no false contradiction inflation on temporal evolution scenarios
 
 ---
 
@@ -115,6 +129,8 @@ Current pass/fail metric classes:
   `tests/scenarios/test_e2e_real_llm_eval.py`
 - Tier 2: curated deterministic regression in
   `tests/scenarios/test_tier2_curated_regression.py`
+- Tier 2: semi-real corporate timeline change-tracking in
+  `tests/scenarios/test_tier2_corporate_timeline.py` (derived from archived S9 narrative)
 - Tier 3: pending
 
 ---
@@ -123,3 +139,4 @@ Current pass/fail metric classes:
 
 - Add Tier 3 ingestion/evaluation harness over real raw dataset slices
 - Add threshold-calibrated pass/fail metrics per tier for Tier 3 datasets
+- Expand Tier 3 subset ground-truth checks from structural/alias baselines to ingestion/retrieval assertions as Tier 3 tests land

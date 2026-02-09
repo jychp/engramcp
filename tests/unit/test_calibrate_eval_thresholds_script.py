@@ -59,11 +59,33 @@ class TestCalibrateEvalThresholdsScript:
             {
                 "scenario": "s4",
                 "tier": "tier2",
+                "metric_class": "confidence_progression",
+                "values": {
+                    "independent_source_count": 2,
+                    "independent_credibility": "2",
+                    "dependent_source_count": 1,
+                    "dependent_credibility": "3",
+                },
+            },
+            {
+                "scenario": "s5",
+                "tier": "tier2",
                 "metric_class": "derivation_traceability",
                 "values": {
                     "rule_entries": 1,
                     "rule_derivation_depth": 3,
                     "has_derivation_run_id": True,
+                },
+            },
+            {
+                "scenario": "s6",
+                "tier": "tier2",
+                "metric_class": "timeline_change_tracking",
+                "values": {
+                    "changed_agents_count": 2,
+                    "timeline_statement_count": 4,
+                    "carol_consistency_hits": 1,
+                    "contradictions": 0,
                 },
             },
         ]
@@ -102,7 +124,9 @@ class TestCalibrateEvalThresholdsScript:
         report = json.loads(output_path.read_text(encoding="utf-8"))
         assert report["metrics"]["overall_pass"] is False
         assert set(report["metrics"]["missing_metric_classes"]) == {
+            "confidence_progression",
             "contradiction_coverage",
             "corroboration",
             "derivation_traceability",
+            "timeline_change_tracking",
         }

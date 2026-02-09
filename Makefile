@@ -1,4 +1,4 @@
-.PHONY: test test-scenarios test-scenarios-tier2 test-real-llm-evals test-scenarios-real-llm calibrate-eval-thresholds
+.PHONY: test test-scenarios test-scenarios-tier2 test-real-llm-evals test-scenarios-real-llm calibrate-eval-thresholds verify-scenario-ground-truth verify-scenario-ground-truth-only
 
 test:
 	UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/.uv-cache} uv run pytest -q
@@ -15,6 +15,11 @@ test-scenarios-tier2:
 
 calibrate-eval-thresholds: test-scenarios
 	UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/.uv-cache} uv run python scripts/calibrate_eval_thresholds.py --metrics reports/scenario-metrics.jsonl --output reports/eval-calibration.json
+
+verify-scenario-ground-truth: test-scenarios-tier2 verify-scenario-ground-truth-only
+
+verify-scenario-ground-truth-only:
+	UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/.uv-cache} uv run python tests/scenarios/helpers/ground_truth_verify.py --metrics reports/scenario-metrics-tier2.jsonl --tier2-ground-truth tests/scenarios/fixtures/ground_truth_tier2.json --tier3-ground-truth tests/scenarios/fixtures/ground_truth_tier3_flight_logs_subset.json --output reports/ground-truth-verification.json
 
 test-real-llm-evals:
 	@if [ "$${ENGRAMCP_RUN_REAL_LLM_EVALS:-0}" != "1" ]; then \

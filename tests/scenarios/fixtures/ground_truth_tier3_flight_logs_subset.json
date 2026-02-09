@@ -1,0 +1,86 @@
+{
+  "tier": "tier3",
+  "dataset_name": "flight_logs_subset_v0",
+  "required_fields": [
+    "flight_date",
+    "origin",
+    "destination",
+    "passengers"
+  ],
+  "records": [
+    {
+      "flight_date": "2002-01-03",
+      "origin": "TEB",
+      "destination": "STT",
+      "passengers": [
+        "Jeffrey Epstein",
+        "Ghislaine Maxwell",
+        "Bill Clinton"
+      ]
+    },
+    {
+      "flight_date": "2002-01-10",
+      "origin": "STT",
+      "destination": "TEB",
+      "passengers": [
+        "Epstein, Jeffrey",
+        "GM"
+      ]
+    },
+    {
+      "flight_date": "2002-01-15",
+      "origin": "TEB",
+      "destination": "PBI",
+      "passengers": [
+        "Jeff Epstein",
+        "Unnamed Female"
+      ]
+    }
+  ],
+  "expectations": {
+    "min_records": 3,
+    "requires_alias_variants": true
+  },
+  "negative_samples": [
+    {
+      "name": "missing_required_field_destination",
+      "records": [
+        {
+          "flight_date": "2002-02-01",
+          "origin": "TEB",
+          "passengers": [
+            "Jane Doe"
+          ]
+        }
+      ],
+      "expectations": {
+        "min_records": 1,
+        "requires_alias_variants": false
+      },
+      "expected_error_substrings": [
+        "missing required field 'destination'"
+      ]
+    },
+    {
+      "name": "alias_variants_required_but_missing",
+      "records": [
+        {
+          "flight_date": "2002-02-02",
+          "origin": "TEB",
+          "destination": "STT",
+          "passengers": [
+            "Passenger A",
+            "Passenger B"
+          ]
+        }
+      ],
+      "expectations": {
+        "min_records": 1,
+        "requires_alias_variants": true
+      },
+      "expected_error_substrings": [
+        "alias variants were required but not detected in records"
+      ]
+    }
+  ]
+}
