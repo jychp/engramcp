@@ -12,7 +12,7 @@ import pytest
 from fastmcp import Client
 
 from engramcp.config import AuditConfig
-from engramcp.config import ConsolidationConfig
+from engramcp.config import scenario_eval_consolidation_config
 from engramcp.evaluation import THRESHOLDS
 from engramcp.engine import LLMAdapter
 from engramcp.server import _get_wm
@@ -137,7 +137,7 @@ async def _setup_server(redis_container, neo4j_container):
         enable_consolidation=True,
         neo4j_url=neo4j_container,
         llm_adapter=_Tier3FlightLogAdapter(),
-        consolidation_config=ConsolidationConfig(fragment_threshold=1),
+        consolidation_config=scenario_eval_consolidation_config(),
         audit_config=AuditConfig(enabled=False),
     )
     yield
