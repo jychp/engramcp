@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import time
+from time import perf_counter
 
 from fastmcp import FastMCP
 from neo4j import AsyncDriver
@@ -51,6 +52,7 @@ from engramcp.models.schemas import ReclassifyPayload
 from engramcp.models.schemas import SendMemoryInput
 from engramcp.models.schemas import SendMemoryResult
 from engramcp.models.schemas import SplitEntityPayload
+from engramcp.observability import record_latency
 
 mcp = FastMCP("EngraMCP")
 
@@ -67,34 +69,44 @@ _audit_logger: AuditLogger | None = None
 
 async def _run_consolidation(fragments: list[MemoryFragment]) -> None:
     """Run one consolidation pass and clear processed fragments from working memory."""
+    start = perf_counter()
     pipeline = _consolidation_pipeline
     wm = _wm
     if pipeline is None or wm is None or not fragments:
         return
 
-    run_result = await pipeline.run(fragments)
-    had_mutation = any(
-        (
-            run_result.entities_created,
-            run_result.entities_merged,
-            run_result.entities_linked,
-            run_result.claims_created,
-            run_result.relations_created,
-            run_result.contradictions_detected,
-            run_result.patterns_created,
-            run_result.concepts_created,
-            run_result.rules_created,
+    ok = False
+    try:
+        run_result = await pipeline.run(fragments)
+        had_mutation = any(
+            (
+                run_result.entities_created,
+                run_result.entities_merged,
+                run_result.entities_linked,
+                run_result.claims_created,
+                run_result.relations_created,
+                run_result.contradictions_detected,
+                run_result.patterns_created,
+                run_result.concepts_created,
+                run_result.rules_created,
+            )
         )
-    )
-    if run_result.errors and not had_mutation:
-        msg = "; ".join(run_result.errors[:3])
-        raise RuntimeError(
-            "Consolidation produced no mutations and reported errors; "
-            f"skipping fragment deletion for retry: {msg}"
-        )
+        if run_result.errors and not had_mutation:
+            msg = "; ".join(run_result.errors[:3])
+            raise RuntimeError(
+                "Consolidation produced no mutations and reported errors; "
+                f"skipping fragment deletion for retry: {msg}"
+            )
 
-    for fragment in fragments:
-        await wm.delete(fragment.id)
+        for fragment in fragments:
+            await wm.delete(fragment.id)
+        ok = True
+    finally:
+        record_latency(
+            operation="consolidation.run",
+            duration_ms=(perf_counter() - start) * 1000,
+            ok=ok,
+        )
 
 
 async def configure(
@@ -653,41 +665,53 @@ async def send_memory(
         confidence_hint: Source reliability hint (letter A-F).
         agent_id: Identifier of the calling agent.
     """
-    wm = _get_wm()
-
+    start = perf_counter()
+    ok = False
     try:
-        validated = SendMemoryInput.model_validate(
-            {
-                "content": content,
-                "source": source,
-                "confidence_hint": confidence_hint,
-                "agent_id": agent_id,
-            }
-        )
-    except ValidationError as exc:
-        return _send_rejected("validation_error", _validation_message(exc))
+        wm = _get_wm()
 
-    # Validate confidence_hint
-    if validated.confidence_hint is not None:
-        hint = validated.confidence_hint.upper()
-        if hint not in _VALID_RELIABILITY_LETTERS:
-            return _send_rejected(
-                "invalid_confidence_hint",
-                "confidence_hint must be a letter between A and F.",
+        try:
+            validated = SendMemoryInput.model_validate(
+                {
+                    "content": content,
+                    "source": source,
+                    "confidence_hint": confidence_hint,
+                    "agent_id": agent_id,
+                }
             )
-        validated.confidence_hint = hint
+        except ValidationError as exc:
+            return _send_rejected("validation_error", _validation_message(exc))
 
-    fragment = create_memory_fragment(
-        content=validated.content,
-        source=(
-            validated.source.model_dump(exclude_none=True) if validated.source else None
-        ),
-        confidence_hint=validated.confidence_hint,
-        agent_id=validated.agent_id,
-    )
+        # Validate confidence_hint
+        if validated.confidence_hint is not None:
+            hint = validated.confidence_hint.upper()
+            if hint not in _VALID_RELIABILITY_LETTERS:
+                return _send_rejected(
+                    "invalid_confidence_hint",
+                    "confidence_hint must be a letter between A and F.",
+                )
+            validated.confidence_hint = hint
 
-    await wm.store(fragment)
-    return SendMemoryResult(memory_id=fragment.id)
+        fragment = create_memory_fragment(
+            content=validated.content,
+            source=(
+                validated.source.model_dump(exclude_none=True)
+                if validated.source
+                else None
+            ),
+            confidence_hint=validated.confidence_hint,
+            agent_id=validated.agent_id,
+        )
+
+        await wm.store(fragment)
+        ok = True
+        return SendMemoryResult(memory_id=fragment.id)
+    finally:
+        record_latency(
+            operation="mcp.send_memory",
+            duration_ms=(perf_counter() - start) * 1000,
+            ok=ok,
+        )
 
 
 @mcp.tool
@@ -711,38 +735,49 @@ async def get_memory(
         limit: Max memories returned.
         compact: Compact mode — omit sources, chains, participants.
     """
-    _get_wm()
+    start = perf_counter()
+    ok = False
     try:
-        validated = GetMemoryInput.model_validate(
-            {
-                "query": query,
-                "max_depth": max_depth,
-                "min_confidence": min_confidence,
-                "include_contradictions": include_contradictions,
-                "include_sources": include_sources,
-                "limit": limit,
-                "compact": compact,
-            }
-        )
-    except ValidationError as exc:
-        return _get_error(
-            query=query,
-            max_depth=max_depth,
-            min_confidence=min_confidence,
-            error_code="validation_error",
-            message=_validation_message(exc),
-        )
+        _get_wm()
+        try:
+            validated = GetMemoryInput.model_validate(
+                {
+                    "query": query,
+                    "max_depth": max_depth,
+                    "min_confidence": min_confidence,
+                    "include_contradictions": include_contradictions,
+                    "include_sources": include_sources,
+                    "limit": limit,
+                    "compact": compact,
+                }
+            )
+        except ValidationError as exc:
+            return _get_error(
+                query=query,
+                max_depth=max_depth,
+                min_confidence=min_confidence,
+                error_code="validation_error",
+                message=_validation_message(exc),
+            )
 
-    if _retrieval_engine is None:
-        return _get_error(
-            query=validated.query,
-            max_depth=validated.max_depth,
-            min_confidence=validated.min_confidence,
-            error_code="retrieval_engine_not_configured",
-            message="Retrieval engine not configured. Call configure() first.",
-        )
+        if _retrieval_engine is None:
+            return _get_error(
+                query=validated.query,
+                max_depth=validated.max_depth,
+                min_confidence=validated.min_confidence,
+                error_code="retrieval_engine_not_configured",
+                message="Retrieval engine not configured. Call configure() first.",
+            )
 
-    return await _retrieval_engine.retrieve(validated)
+        result = await _retrieval_engine.retrieve(validated)
+        ok = result.status == "ok"
+        return result
+    finally:
+        record_latency(
+            operation="mcp.get_memory",
+            duration_ms=(perf_counter() - start) * 1000,
+            ok=ok,
+        )
 
 
 @mcp.tool

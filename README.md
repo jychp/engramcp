@@ -195,6 +195,7 @@ Full project documentation is available here:
 
 - https://www.cubic.dev/wiki/jychp/engramcp
 - Design docs in this repository: `docs/design/`
+- Observability design note: `docs/design/observability.md`
 
 ## Architecture
 
@@ -204,6 +205,7 @@ EngraMCP follows a layered architecture from MCP interface to storage/consolidat
 - MCP contract: `docs/design/mcp-interface.md`
 - Working memory: `docs/design/working-memory.md`
 - Graph store: `docs/design/graph-store.md`
+- Observability: `docs/design/observability.md`
 - Evaluation tiers and structure: `docs/design/evaluation-scenarios.md`
 
 ## Development
@@ -214,6 +216,7 @@ uv run pre-commit run --all-files
 make test-scenarios
 make test-scenarios-tier2
 make test-scenarios-tier3
+make test-retrieval-perf
 make test-scenarios-real-llm
 make calibrate-eval-thresholds
 make verify-scenario-ground-truth
@@ -229,6 +232,11 @@ make verify-scenario-ground-truth-only
 
 `make verify-scenario-ground-truth-only` reuses existing metrics (no scenario re-run).
 Optional: pass `METRICS_PATH=...` to point at a custom combined metrics JSONL.
+
+Latency/perf notes:
+- `get_memory` responses include `meta.retrieval_ms`.
+- In-process latency aggregates are tracked for `send_memory`, `get_memory`, consolidation runs, and retrieval engine calls.
+- CI includes a bounded retrieval perf integration test on a deep/branching graph topology.
 
 Optional real-LLM end-to-end evals (opt-in, requires API key and may incur cost):
 

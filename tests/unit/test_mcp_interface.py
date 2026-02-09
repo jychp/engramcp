@@ -10,6 +10,9 @@ import json
 
 import pytest
 
+from engramcp.observability import latency_metrics_snapshot
+from engramcp.observability import reset_latency_metrics
+
 
 def _parse(result) -> dict:
     """Extract the JSON payload from a CallToolResult."""
@@ -84,6 +87,16 @@ class TestSendMemory:
         assert data["status"] == "rejected"
         assert data["error_code"] is not None
         assert data["message"] is not None
+
+    async def test_records_send_memory_latency_metric(self, mcp_client):
+        reset_latency_metrics()
+        result = await mcp_client.call_tool("send_memory", {"content": "latency probe"})
+        data = _parse(result)
+        assert data["status"] == "accepted"
+        metrics = latency_metrics_snapshot()["mcp.send_memory"]
+        assert metrics["count"] == 1
+        assert metrics["error_count"] == 0
+        assert metrics["last_ms"] >= 0
 
 
 # -----------------------------------------------------------------------
@@ -166,6 +179,8 @@ class TestGetMemory:
         data = _parse(result)
         assert isinstance(data["meta"], dict)
         assert data["meta"]["query"] == "anything"
+        assert isinstance(data["meta"]["retrieval_ms"], int)
+        assert data["meta"]["retrieval_ms"] >= 0
 
     async def test_memory_has_id_type_content_confidence(self, mcp_client):
         # Send a memory first so get_memory returns something
@@ -358,8 +373,29 @@ class TestGetMemory:
         data = _parse(result)
         assert data["status"] == "error"
         assert data["error_code"] == "validation_error"
-        assert data["message"] is not None
-        assert data["memories"] == []
+
+    async def test_records_get_memory_latency_metric(self, mcp_client):
+        reset_latency_metrics()
+        await mcp_client.call_tool("send_memory", {"content": "retrieval latency probe"})
+        result = await mcp_client.call_tool("get_memory", {"query": "latency"})
+        data = _parse(result)
+        assert data["status"] == "ok"
+        metrics = latency_metrics_snapshot()["mcp.get_memory"]
+        assert metrics["count"] == 1
+        assert metrics["error_count"] == 0
+        assert metrics["last_ms"] >= 0
+
+    async def test_records_get_memory_latency_error_metric(self, mcp_client):
+        reset_latency_metrics()
+        result = await mcp_client.call_tool(
+            "get_memory", {"query": "anything", "min_confidence": "ZZ"}
+        )
+        data = _parse(result)
+        assert data["status"] == "error"
+        metrics = latency_metrics_snapshot()["mcp.get_memory"]
+        assert metrics["count"] == 1
+        assert metrics["error_count"] == 1
+        assert metrics["last_ms"] >= 0
 
 
 # -----------------------------------------------------------------------

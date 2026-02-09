@@ -139,6 +139,8 @@ class TestRetrievalEngine:
         assert result.meta.total_found == 1
         assert result.meta.working_memory_hits == 1
         assert result.meta.graph_hits == 0
+        assert isinstance(result.meta.retrieval_ms, int)
+        assert result.meta.retrieval_ms >= 0
         assert result.memories[0].id == "mem_1"
         assert graph.calls == 0
 
