@@ -195,6 +195,7 @@ Full project documentation is available here:
 
 - https://www.cubic.dev/wiki/jychp/engramcp
 - Design docs in this repository: `docs/design/`
+- Observability design note: `docs/design/observability.md`
 
 ## Architecture
 
