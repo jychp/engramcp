@@ -7,10 +7,12 @@ FastMCP v2 serializes Pydantic models automatically.
 
 from __future__ import annotations
 
+import json
 from enum import Enum
 
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import model_validator
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -46,14 +48,17 @@ class SourceInput(BaseModel):
 
     type: str | None = Field(
         default=None,
+        max_length=128,
         description="Kind of source (e.g. court_document, article, testimony).",
     )
     ref: str | None = Field(
         default=None,
+        max_length=2048,
         description="URI or locator for the original document.",
     )
     citation: str | None = Field(
         default=None,
+        max_length=2048,
         description="Precise location within the source (page, paragraph, etc.).",
     )
 
@@ -121,19 +126,31 @@ class GetMemoryInput(BaseModel):
 class ContestPayload(BaseModel):
     """Payload for the ``contest`` correction action."""
 
-    reason: str = Field(description="Why the memory is being contested.")
+    reason: str = Field(
+        min_length=1,
+        max_length=2048,
+        description="Why the memory is being contested.",
+    )
 
 
 class AnnotatePayload(BaseModel):
     """Payload for the ``annotate`` correction action."""
 
-    note: str = Field(description="Annotation text to add.")
+    note: str = Field(
+        min_length=1,
+        max_length=4096,
+        description="Annotation text to add.",
+    )
 
 
 class MergeEntitiesPayload(BaseModel):
     """Payload for the ``merge_entities`` correction action."""
 
-    merge_with: str = Field(description="ID of the entity to merge with.")
+    merge_with: str = Field(
+        min_length=1,
+        max_length=128,
+        description="ID of the entity to merge with.",
+    )
 
 
 class SplitEntityPayload(BaseModel):
@@ -141,14 +158,29 @@ class SplitEntityPayload(BaseModel):
 
     split_into: list[str] = Field(
         min_length=1,
+        max_length=50,
         description="Labels for the resulting entities (at least one item).",
     )
+
+    @model_validator(mode="after")
+    def _validate_split_items(self) -> SplitEntityPayload:
+        for item in self.split_into:
+            value = item.strip()
+            if not value:
+                raise ValueError("split_into items must be non-empty strings")
+            if len(value) > 512:
+                raise ValueError("split_into items must be <= 512 characters")
+        return self
 
 
 class ReclassifyPayload(BaseModel):
     """Payload for the ``reclassify`` correction action."""
 
-    new_type: str = Field(description="New ontology type for the memory.")
+    new_type: str = Field(
+        min_length=1,
+        max_length=128,
+        description="New ontology type for the memory.",
+    )
 
 
 CorrectionPayload = (
@@ -164,6 +196,8 @@ class CorrectMemoryInput(BaseModel):
     """Input for correct_memory tool."""
 
     target_id: str = Field(
+        min_length=1,
+        max_length=128,
         description="ID of the memory or node to correct.",
     )
     action: CorrectionAction = Field(
@@ -173,6 +207,15 @@ class CorrectMemoryInput(BaseModel):
         default=None,
         description="Action-specific data (reason, new labels, merge targets, etc.).",
     )
+
+    @model_validator(mode="after")
+    def _validate_payload_size(self) -> CorrectMemoryInput:
+        if self.payload is None:
+            return self
+        payload_json = json.dumps(self.payload, separators=(",", ":"))
+        if len(payload_json.encode("utf-8")) > 32768:
+            raise ValueError("payload must be <= 32KB")
+        return self
 
 
 # ---------------------------------------------------------------------------

@@ -505,3 +505,31 @@ class TestCorrectMemory:
         assert data["status"] == "rejected"
         assert data["error_code"] == "validation_error"
         assert data["message"] is not None
+
+    async def test_rejects_oversized_correction_payload(self, mcp_client):
+        mem_id = await self._send_and_get_id(mcp_client)
+        result = await mcp_client.call_tool(
+            "correct_memory",
+            {
+                "target_id": mem_id,
+                "action": "annotate",
+                "payload": {"note": "x" * 40000},
+            },
+        )
+        data = _parse(result)
+        assert data["status"] == "rejected"
+        assert data["error_code"] == "validation_error"
+
+    async def test_rejects_blank_split_entity_item(self, mcp_client):
+        mem_id = await self._send_and_get_id(mcp_client)
+        result = await mcp_client.call_tool(
+            "correct_memory",
+            {
+                "target_id": mem_id,
+                "action": "split_entity",
+                "payload": {"split_into": ["valid", "   "]},
+            },
+        )
+        data = _parse(result)
+        assert data["status"] == "rejected"
+        assert data["error_code"] == "validation_error"
