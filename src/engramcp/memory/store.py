@@ -10,6 +10,7 @@ so that ``delete()`` can clean keyword indexes even after TTL expiry.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import re
@@ -163,12 +164,11 @@ class WorkingMemory:
         try:
             async with self._flush_lock:
                 fragments = await self.get_recent(limit=current)
-                try:
-                    if self._on_flush is None:
-                        raise RuntimeError("on_flush callback is not configured")
-                    await self._on_flush(fragments)
-                except Exception:
-                    logger.exception("on_flush callback failed")
+                if self._on_flush is None:
+                    raise RuntimeError("on_flush callback is not configured")
+                await self._on_flush(fragments)
+        except Exception:
+            logger.exception("flush task failed")
         finally:
             retrigger = self._flush_pending
             self._flush_pending = False
@@ -177,9 +177,13 @@ class WorkingMemory:
                 self._flush_task = None
 
             if retrigger and self._flush_threshold and self._on_flush:
-                latest = await self.count()
-                if latest >= self._flush_threshold:
-                    self._trigger_flush(latest)
+                try:
+                    latest = await self.count()
+                except Exception:
+                    logger.exception("flush retrigger count check failed")
+                else:
+                    if latest >= self._flush_threshold:
+                        self._trigger_flush(latest)
 
     # -- read --
 
@@ -324,6 +328,12 @@ class WorkingMemory:
 
     async def close(self) -> None:
         """Close the underlying Redis client."""
+        if self._flush_task is not None and not self._flush_task.done():
+            self._flush_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._flush_task
+        self._flush_task = None
+        self._flush_pending = False
         try:
             await self._redis.aclose()
         except RuntimeError as exc:

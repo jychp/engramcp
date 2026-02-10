@@ -14,7 +14,7 @@ from fastmcp import FastMCP
 from neo4j import AsyncDriver
 from neo4j import AsyncGraphDatabase
 from pydantic import ValidationError
-from redis.asyncio import Redis  # type: ignore[import-untyped]
+from redis.asyncio import Redis  # type: ignore[import-untyped,unused-ignore]
 
 from engramcp.audit import AuditEvent
 from engramcp.audit import AuditEventType

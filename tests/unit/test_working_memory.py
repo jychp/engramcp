@@ -218,6 +218,45 @@ class TestLifecycle:
         await asyncio.sleep(0.35)
         assert call_count >= 2
 
+    async def test_flush_failure_does_not_leave_dangling_task(self, redis_client, monkeypatch):
+        async def on_flush(_: list[MemoryFragment]) -> None:
+            return None
+
+        wm = WorkingMemory(
+            redis_client,
+            ttl=3600,
+            max_size=1000,
+            flush_threshold=1,
+            on_flush=on_flush,
+        )
+        async def fail_get_recent(*, limit: int = 20) -> list[MemoryFragment]:
+            del limit
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(wm, "get_recent", fail_get_recent)
+        await wm.store(_make_fragment("flush boom"))
+        await asyncio.sleep(0.05)
+        assert wm._flush_task is None
+
+    async def test_close_cancels_running_flush_task(self, redis_client):
+        started = asyncio.Event()
+
+        async def on_flush(_: list[MemoryFragment]) -> None:
+            started.set()
+            await asyncio.sleep(1.0)
+
+        wm = WorkingMemory(
+            redis_client,
+            ttl=3600,
+            max_size=1000,
+            flush_threshold=1,
+            on_flush=on_flush,
+        )
+        await wm.store(_make_fragment("slow flush"))
+        await asyncio.wait_for(started.wait(), timeout=0.2)
+        await wm.close()
+        assert wm._flush_task is None
+
     async def test_evict_cleans_keyword_index_without_frag_kw(self, redis_client):
         wm = WorkingMemory(redis_client, ttl=3600, max_size=1)
         first = _make_fragment("Alpha marker")
