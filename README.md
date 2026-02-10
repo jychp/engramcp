@@ -72,7 +72,7 @@ pre-commit install
 
 ## Configuration
 
-Current configuration is code-based (dataclasses), not env-var based.
+Core runtime configuration is code-based (dataclasses). MCP transport auth is optional and env-based.
 
 - LLM settings: `src/engramcp/config.py` (`LLMConfig`)
   - Providers: `openai` (requires `api_key`) and `noop` (deterministic local/testing adapter)
@@ -86,6 +86,9 @@ Current configuration is code-based (dataclasses), not env-var based.
     - `scenario_eval_consolidation_config()` (`fragment_threshold=4`, `pattern_min_occurrences=2`)
 - Entity resolution settings: `src/engramcp/config.py` (`EntityResolutionConfig`)
 - Audit settings: `src/engramcp/config.py` (`AuditConfig`)
+- MCP auth setting: `MCP_AUTH_KEY` environment variable (optional, recommended for HTTP deployments)
+  - Uses static bearer token auth (`Authorization: Bearer <MCP_AUTH_KEY>`)
+  - Read when `engramcp.server` is imported (restart/reload process after changing it)
 
 Working memory must be configured before using tools:
 
