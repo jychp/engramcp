@@ -86,7 +86,7 @@ Agent → correct_memory → [WM-first contest/annotate + graph-aware split/merg
 
 | Layer | Module | Description |
 |---|---|---|
-| 7 | `server.py` | MCP interface + consolidation/retrieval assembly/wiring + correction audit flows (WM-first `contest`/`annotate`; graph-aware `split_entity`/`merge_entities`/derived-lifecycle-aware `reclassify` with WM fallback where applicable; consolidation requires explicit LLM provider wiring via `LLMConfig`/adapter) |
+| 7 | `server.py` | MCP interface + optional static bearer auth (`MCP_AUTH_KEY`) + consolidation/retrieval assembly/wiring + correction audit flows (WM-first `contest`/`annotate`; graph-aware `split_entity`/`merge_entities`/derived-lifecycle-aware `reclassify` with WM fallback where applicable; consolidation requires explicit LLM provider wiring via `LLMConfig`/adapter) |
 | 6 | `engine/retrieval.py` | WM-first retrieval, bounded graph-context fallback (`max_depth`) over claim + derived nodes, scoring, synthesis, demand-hook emission |
 | 5 | `engine/concepts.py`, `engine/demand.py` | Concept emergence from retrieval demand |
 | 4 | `engine/consolidation.py`, `engine/extraction.py` | Async batch pipeline, LLM extraction, idempotent claim/source writes for repeated runs, contradiction detection, abstraction |
@@ -113,6 +113,7 @@ Agent → correct_memory → [WM-first contest/annotate + graph-aware split/merg
 ```
 src/engramcp/
 ├── __init__.py
+├── auth.py                 # Optional MCP bearer auth verifier (MCP_AUTH_KEY)
 ├── server.py               # FastMCP server, 3 tools
 ├── config.py               # LLM, consolidation, entity resolution, audit config
 ├── evaluation.py           # Shared scenario-eval pass/fail thresholds
@@ -181,6 +182,7 @@ src/engramcp/
 - **Confidence**: NATO two-dimensional rating (letter = source reliability, number = credibility)
 - **Confidence on relations, not nodes**: same fact can have different ratings from different sources
 - **MCP errors**: tool responses may include `error_code` and `message` when rejected/errored
+- **MCP auth**: optional static bearer auth can be enabled by setting `MCP_AUTH_KEY` before importing `engramcp.server`; requests must send `Authorization: Bearer <MCP_AUTH_KEY>`
 - **LLM provider wiring**: consolidation no longer uses implicit noop fallback; configure explicit `llm_config` provider (or inject `llm_adapter` in code/tests)
 - **Scenario eval config profile**: use `scenario_eval_consolidation_config()` from `config.py` for deterministic scenario-only tuning (`fragment_threshold=4`, `pattern_min_occurrences=2`) instead of hardcoding values in tests
 - **Extraction failure policy**: extraction output is schema-validated (`ExtractionResult`) and supports configurable retries for provider errors/invalid JSON/schema validation failures via `ConsolidationConfig` retry fields

@@ -19,6 +19,7 @@ from redis.asyncio import Redis  # type: ignore[import-untyped]
 from engramcp.audit import AuditEvent
 from engramcp.audit import AuditEventType
 from engramcp.audit import AuditLogger
+from engramcp.auth import create_mcp_auth
 from engramcp.config import AuditConfig
 from engramcp.config import ConsolidationConfig
 from engramcp.config import EntityResolutionConfig
@@ -54,7 +55,7 @@ from engramcp.models.schemas import SendMemoryResult
 from engramcp.models.schemas import SplitEntityPayload
 from engramcp.observability import record_latency
 
-mcp = FastMCP("EngraMCP")
+mcp = FastMCP("EngraMCP", auth=create_mcp_auth())
 
 # ---------------------------------------------------------------------------
 # Working memory instance (set via configure())
