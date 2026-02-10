@@ -41,7 +41,7 @@ class TestRunConsolidation:
         assert metrics["count"] == 1
         assert metrics["error_count"] == 1
 
-    async def test_errors_with_mutation_delete_fragments(self, monkeypatch):
+    async def test_errors_with_mutation_keep_fragments_for_retry(self, monkeypatch):
         pipeline = AsyncMock()
         pipeline.run.return_value = ConsolidationRunResult(
             run_id="run-1",
@@ -58,11 +58,10 @@ class TestRunConsolidation:
             MemoryFragment(id="mem-2", content="fact two"),
         ]
 
-        await server_module._run_consolidation(fragments)
+        with pytest.raises(RuntimeError, match="skipping fragment deletion for retry"):
+            await server_module._run_consolidation(fragments)
 
-        assert wm.delete.await_count == 2
-        wm.delete.assert_any_await("mem-1")
-        wm.delete.assert_any_await("mem-2")
+        wm.delete.assert_not_awaited()
         metrics = latency_metrics_snapshot()["consolidation.run"]
         assert metrics["count"] == 1
-        assert metrics["error_count"] == 0
+        assert metrics["error_count"] == 1
