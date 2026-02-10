@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+import pytest
+
 from engramcp.auth import APIKeyVerifier
 from engramcp.auth import create_mcp_auth
 from engramcp.auth import get_mcp_auth_key
 
 
 class TestAPIKeyVerifier:
+    def test_rejects_empty_api_key(self) -> None:
+        with pytest.raises(ValueError, match="api_key must be a non-empty"):
+            APIKeyVerifier("")
+
+    def test_rejects_blank_api_key(self) -> None:
+        with pytest.raises(ValueError, match="api_key must be a non-empty"):
+            APIKeyVerifier("   ")
+
     async def test_verify_valid_token(self) -> None:
         verifier = APIKeyVerifier("my-secret-key")
 

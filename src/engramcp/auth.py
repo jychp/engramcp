@@ -17,8 +17,11 @@ class APIKeyVerifier(TokenVerifier):
     """Static bearer-token verifier for MCP requests."""
 
     def __init__(self, api_key: str) -> None:
+        normalized = api_key.strip()
+        if not normalized:
+            raise ValueError("api_key must be a non-empty, non-whitespace string")
         super().__init__()
-        self._api_key = api_key
+        self._api_key = normalized
 
     async def verify_token(self, token: str) -> AccessToken | None:
         """Return an access token when the provided bearer token is valid."""
