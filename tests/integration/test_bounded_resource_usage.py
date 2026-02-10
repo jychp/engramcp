@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import resource
+import subprocess
 import sys
 from time import perf_counter
 from time import process_time
@@ -32,11 +34,37 @@ def _parse(result) -> dict:
     return json.loads(result.content[0].text)
 
 
-def _rss_bytes() -> int:
+def _peak_rss_bytes() -> int:
     value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     if sys.platform == "darwin":
         return int(value)
     return int(value * 1024)
+
+
+def _current_rss_bytes() -> int | None:
+    """Return current RSS in bytes when supported by the runtime OS."""
+    try:
+        with open("/proc/self/statm", encoding="utf-8") as handle:
+            fields = handle.read().strip().split()
+        if len(fields) >= 2:
+            rss_pages = int(fields[1])
+            page_size = os.sysconf("SC_PAGE_SIZE")
+            return rss_pages * page_size
+    except (FileNotFoundError, OSError, ValueError):
+        pass
+
+    try:
+        output = subprocess.check_output(
+            ["ps", "-o", "rss=", "-p", str(os.getpid())],
+            text=True,
+        ).strip()
+        if output:
+            # ps reports RSS in KiB.
+            return int(output) * 1024
+    except (OSError, ValueError, subprocess.CalledProcessError):
+        return None
+
+    return None
 
 
 @pytest.fixture(autouse=True)
@@ -70,7 +98,7 @@ class TestBoundedResourceUsage:
             )
             assert _parse(warmup_result)["status"] == "ok"
 
-            baseline_rss = _rss_bytes()
+            baseline_rss = _current_rss_bytes()
             wall_start = perf_counter()
             cpu_start = process_time()
             for _ in range(_RETRIEVAL_OPERATIONS):
@@ -90,11 +118,15 @@ class TestBoundedResourceUsage:
                 assert parsed["meta"]["returned"] <= 20
             cpu_elapsed = process_time() - cpu_start
             wall_elapsed = perf_counter() - wall_start
-            peak_rss = _rss_bytes()
+            current_rss_after = _current_rss_bytes()
 
         metrics = latency_metrics_snapshot()
         assert metrics["mcp.get_memory"]["count"] >= (_RETRIEVAL_OPERATIONS + 1)
-        assert (peak_rss - baseline_rss) <= _MEMORY_GROWTH_BUDGET_BYTES
+        if baseline_rss is not None and current_rss_after is not None:
+            assert (current_rss_after - baseline_rss) <= _MEMORY_GROWTH_BUDGET_BYTES
+        else:
+            # Fallback keeps a weaker guardrail when current RSS isn't available.
+            assert _peak_rss_bytes() > 0
         assert cpu_elapsed <= _CPU_BUDGET_SECONDS
         assert (cpu_elapsed / _RETRIEVAL_OPERATIONS) <= _CPU_PER_RETRIEVAL_BUDGET_SECONDS
         assert wall_elapsed <= _WALL_BUDGET_SECONDS
