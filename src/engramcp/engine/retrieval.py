@@ -21,6 +21,8 @@ from engramcp.models.schemas import MetaInfo
 from engramcp.models.schemas import SourceEntry
 from engramcp.observability import record_latency
 
+_RELIABILITY_ORDER = "ABCDEF"
+
 
 class RetrievalScorer(Protocol):
     """Scores retrieval candidates for ranking."""
@@ -200,6 +202,9 @@ class RetrievalEngine:
             base_type, dynamic_type = _labels_to_types(
                 node_labels, fallback=type(node).__name__
             )
+            confidence = getattr(node, "confidence", None)
+            if not _confidence_passes_minimum(confidence, request.min_confidence):
+                continue
 
             entries.append(
                 MemoryEntry(
@@ -207,7 +212,7 @@ class RetrievalEngine:
                     type=base_type,
                     dynamic_type=dynamic_type,
                     content=content,
-                    confidence=None,
+                    confidence=confidence,
                     properties={},
                     participants=[] if request.compact else [],
                     causal_chain=[] if request.compact else [],
@@ -231,6 +236,9 @@ class RetrievalEngine:
             base_type, dynamic_type = _labels_to_types(
                 node.get("labels", []), fallback="Fact"
             )
+            confidence = node.get("confidence")
+            if not _confidence_passes_minimum(confidence, request.min_confidence):
+                continue
 
             causal_chain = []
             if not request.compact:
@@ -259,7 +267,7 @@ class RetrievalEngine:
                     type=base_type,
                     dynamic_type=dynamic_type,
                     content=content,
-                    confidence=node.get("confidence"),
+                    confidence=confidence,
                     properties=node.get("properties", {}) or {},
                     participants=[],
                     causal_chain=causal_chain,
@@ -339,6 +347,27 @@ def _confidence_bonus(confidence: str | None) -> float:
         return 0.0
 
     return letter_quality + number_quality
+
+
+def _confidence_passes_minimum(confidence: object, minimum: str) -> bool:
+    """Apply NATO minimum confidence filtering with AND semantics."""
+    if minimum == "F6":
+        return True
+    if not isinstance(confidence, str) or len(confidence) < 2:
+        return False
+
+    mem_letter = confidence[0].upper()
+    mem_number_raw = confidence[1:]
+    flt_letter = minimum[0].upper()
+    flt_number_raw = minimum[1:]
+    try:
+        letter_ok = _RELIABILITY_ORDER.index(mem_letter) <= _RELIABILITY_ORDER.index(
+            flt_letter
+        )
+        number_ok = int(mem_number_raw) <= int(flt_number_raw)
+    except (ValueError, IndexError):
+        return False
+    return letter_ok and number_ok
 
 
 def _parse_contradiction_nature(value: object) -> ContradictionNature:
