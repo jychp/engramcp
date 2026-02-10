@@ -153,3 +153,14 @@ class TestAuditLogRead:
         logger = AuditLogger(_config(tmp_path))
         events = await logger.read_events()
         assert events == []
+
+    @pytest.mark.asyncio
+    async def test_read_events_skips_malformed_lines(self, tmp_path: Path):
+        logger = AuditLogger(_config(tmp_path))
+        path = Path(logger.config.file_path)
+        valid = _make_event(timestamp=1.0).model_dump_json()
+        path.write_text(f"{valid}\n{{not-json}}\n{valid}\n", encoding="utf-8")
+
+        events = await logger.read_events()
+        assert len(events) == 2
+        assert [evt.timestamp for evt in events] == [1.0, 1.0]
