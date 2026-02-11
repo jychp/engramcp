@@ -151,10 +151,10 @@ class WorkingMemory:
             try:
                 await pipe.execute()
             except Exception:
-                # Roll back standalone fragment write to avoid orphaned payloads
-                # with missing recency/keyword indexes.
-                with contextlib.suppress(Exception):
-                    await self._redis.delete(key)
+                # Best-effort rollback for payload + indexes. If EXEC applied
+                # partially before an error surfaced, avoid leaving orphaned
+                # index entries that inflate count() and trigger bad evictions.
+                await self._rollback_fragment_write(fragment.id, keywords)
                 raise
             break
         else:
@@ -360,6 +360,20 @@ class WorkingMemory:
                 raise
 
     # -- internal --
+
+    async def _rollback_fragment_write(
+        self, fragment_id: str, keywords: list[str]
+    ) -> None:
+        """Best-effort cleanup for a failed store() attempt."""
+        with contextlib.suppress(Exception):
+            await self._redis.delete(f"{_FRAGMENT_KEY}:{fragment_id}")
+        with contextlib.suppress(Exception):
+            await self._redis.zrem(_RECENCY_KEY, fragment_id)
+        with contextlib.suppress(Exception):
+            await self._redis.delete(f"{_FRAG_KW_KEY}:{fragment_id}")
+        for word in keywords:
+            with contextlib.suppress(Exception):
+                await self._redis.srem(f"{_KEYWORD_KEY}:{word}", fragment_id)
 
     async def _evict_if_needed(self) -> None:
         """Evict oldest fragments if count exceeds max_size."""

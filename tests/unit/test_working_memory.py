@@ -112,31 +112,52 @@ class TestWrite:
     async def test_store_rolls_back_fragment_if_index_pipeline_fails(
         self, wm, monkeypatch
     ):
-        fragment = _make_fragment("rollback-case")
+        fragment = _make_fragment("rollback case with keywords")
         key = f"engramcp:fragment:{fragment.id}"
+        recency_key = "engramcp:recency"
+        frag_kw_key = f"engramcp:frag_kw:{fragment.id}"
+        keywords = {"rollback", "case", "with", "keywords"}
 
         class _FailingPipeline:
+            def __init__(self, redis):
+                self._redis = redis
+                self._ops: list[tuple[str, tuple, dict]] = []
+
             def zadd(self, *_args, **_kwargs):
+                self._ops.append(("zadd", _args, _kwargs))
                 return self
 
             def set(self, *_args, **_kwargs):
+                self._ops.append(("set", _args, _kwargs))
                 return self
 
             def sadd(self, *_args, **_kwargs):
+                self._ops.append(("sadd", _args, _kwargs))
                 return self
 
             def expire(self, *_args, **_kwargs):
+                self._ops.append(("expire", _args, _kwargs))
                 return self
 
             async def execute(self):
+                # Simulate an error after some writes were already applied.
+                for idx, (name, args, kwargs) in enumerate(self._ops):
+                    if idx >= 3:
+                        break
+                    await getattr(self._redis, name)(*args, **kwargs)
                 raise RuntimeError("pipeline boom")
 
-        monkeypatch.setattr(wm._redis, "pipeline", lambda: _FailingPipeline())
+        monkeypatch.setattr(wm._redis, "pipeline", lambda: _FailingPipeline(wm._redis))
 
         with pytest.raises(RuntimeError, match="pipeline boom"):
             await wm.store(fragment)
 
         assert await wm._redis.get(key) is None
+        assert await wm._redis.zscore(recency_key, fragment.id) is None
+        assert await wm._redis.get(frag_kw_key) is None
+        for word in keywords:
+            assert not await wm._redis.sismember(f"engramcp:keyword:{word}", fragment.id)
+        assert await wm.count() == 0
 
 
 # -----------------------------------------------------------------------
