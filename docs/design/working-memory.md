@@ -34,7 +34,7 @@ engramcp:frag_kw:{id}      → JSON keywords per fragment (SET with EX ttl)
 
 ```python
 class MemoryFragment(BaseModel):
-    id: str               # auto-generated "mem_{hex16}"
+    id: str               # auto-generated "mem_{uuid4_hex}"
     content: str
     type: str = "Fact"
     dynamic_type: str | None

@@ -12,8 +12,8 @@ class MemoryFragment(BaseModel):
     """A single memory held in working memory."""
 
     id: str = Field(
-        default_factory=lambda: f"mem_{uuid.uuid4().hex[:16]}",
-        description="Unique identifier, auto-generated as mem_{hex16}.",
+        default_factory=lambda: f"mem_{uuid.uuid4().hex}",
+        description="Unique identifier, auto-generated as mem_{uuid4_hex}.",
     )
     content: str = Field(
         description="Raw textual content of the memory.",

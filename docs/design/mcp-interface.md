@@ -52,7 +52,7 @@ FastMCP v2 serializes Pydantic models automatically via `pydantic_core.to_jsonab
 
 **Behavior**:
 - Validates input with `SendMemoryInput` (size limits, confidence format)
-- Generates a `mem_<hex16>` ID
+- Generates a `mem_<uuid4_hex>` ID
 - Stores entry with default confidence `<hint_or_F>3` (hint letter + uncorroborated number)
 - Attaches source as `SourceEntry` if provided
 

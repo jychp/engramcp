@@ -14,7 +14,7 @@ from fastmcp import FastMCP
 from neo4j import AsyncDriver
 from neo4j import AsyncGraphDatabase
 from pydantic import ValidationError
-from redis.asyncio import Redis  # type: ignore[import-untyped]
+from redis.asyncio import Redis  # type: ignore[import-untyped,unused-ignore]
 
 from engramcp.audit import AuditEvent
 from engramcp.audit import AuditEventType
@@ -35,11 +35,12 @@ from engramcp.graph import EntityResolver
 from engramcp.graph import GraphStore
 from engramcp.graph import init_schema
 from engramcp.graph import MergeExecutor
+from engramcp.graph.corrections import merge_entities_in_graph
+from engramcp.graph.corrections import reclassify_in_graph
+from engramcp.graph.corrections import split_entity_in_graph
 from engramcp.memory import create_memory_fragment
 from engramcp.memory import WorkingMemory
 from engramcp.memory.schemas import MemoryFragment
-from engramcp.models.nodes import Agent
-from engramcp.models.nodes import MemoryNode
 from engramcp.models.schemas import AnnotatePayload
 from engramcp.models.schemas import ContestPayload
 from engramcp.models.schemas import CorrectionAction
@@ -79,23 +80,10 @@ async def _run_consolidation(fragments: list[MemoryFragment]) -> None:
     ok = False
     try:
         run_result = await pipeline.run(fragments)
-        had_mutation = any(
-            (
-                run_result.entities_created,
-                run_result.entities_merged,
-                run_result.entities_linked,
-                run_result.claims_created,
-                run_result.relations_created,
-                run_result.contradictions_detected,
-                run_result.patterns_created,
-                run_result.concepts_created,
-                run_result.rules_created,
-            )
-        )
-        if run_result.errors and not had_mutation:
+        if run_result.errors:
             msg = "; ".join(run_result.errors[:3])
             raise RuntimeError(
-                "Consolidation produced no mutations and reported errors; "
+                "Consolidation reported errors; "
                 f"skipping fragment deletion for retry: {msg}"
             )
 
@@ -251,26 +239,6 @@ def _get_concept_candidate_count() -> int:
 
 
 _VALID_RELIABILITY_LETTERS = set("ABCDEF")
-_ALLOWED_GRAPH_REL_TYPES = {
-    "SOURCED_FROM",
-    "DERIVED_FROM",
-    "CITES",
-    "CAUSED_BY",
-    "LEADS_TO",
-    "PRECEDED",
-    "FOLLOWED",
-    "SUPPORTS",
-    "CONTRADICTS",
-    "PARTICIPATED_IN",
-    "DECIDED_BY",
-    "OBSERVED_BY",
-    "MENTIONS",
-    "CONCERNS",
-    "GENERALIZES",
-    "INSTANCE_OF",
-    "POSSIBLY_SAME_AS",
-    "MERGED_FROM",
-}
 
 
 def _validation_message(exc: ValidationError) -> str:
@@ -445,212 +413,6 @@ def _reclassify_history_record(
     return {"from": old_type, "to": new_type, "at": at}
 
 
-def _build_split_graph_node(target_node: MemoryNode, split_value: str) -> MemoryNode:
-    """Clone a graph node for split operation with content/name overridden."""
-    payload = target_node.model_dump(exclude={"id", "created_at", "updated_at"})
-    if "name" in payload:
-        payload["name"] = split_value
-        if isinstance(target_node, Agent):
-            payload["aliases"] = list(
-                dict.fromkeys([*target_node.aliases, target_node.name])
-            )
-    elif "content" in payload:
-        payload["content"] = split_value
-    else:
-        msg = f"Node type {type(target_node).__name__} cannot be split"
-        raise ValueError(msg)
-    return type(target_node)(**payload)
-
-
-async def _split_entity_in_graph(target_id: str, split_into: list[str]) -> dict | None:
-    """Split a graph node into multiple nodes and duplicate its relationships."""
-    if _graph_driver is None:
-        return None
-
-    graph_store = GraphStore(_graph_driver)
-    target_node = await graph_store.get_node(target_id)
-    if target_node is None:
-        return None
-
-    created_memory_ids: list[str] = []
-    for split_value in split_into:
-        new_node = _build_split_graph_node(target_node, split_value)
-        created_memory_ids.append(await graph_store.create_node(new_node))
-
-    outgoing: list[dict] = []
-    incoming: list[dict] = []
-    async with _graph_driver.session() as session:
-        outgoing_result = await session.run(
-            "MATCH (n:Memory {id: $id})-[r]->(m:Memory) "
-            "RETURN type(r) AS rel_type, properties(r) AS props, m.id AS other_id",
-            id=target_id,
-        )
-        outgoing = [record.data() async for record in outgoing_result]
-
-        incoming_result = await session.run(
-            "MATCH (m:Memory)-[r]->(n:Memory {id: $id}) "
-            "RETURN type(r) AS rel_type, properties(r) AS props, m.id AS other_id",
-            id=target_id,
-        )
-        incoming = [record.data() async for record in incoming_result]
-
-        redistributed = 0
-        for child_id in created_memory_ids:
-            for rel in outgoing:
-                rel_type = str(rel.get("rel_type", ""))
-                if rel_type not in _ALLOWED_GRAPH_REL_TYPES:
-                    continue
-                await session.run(
-                    "MATCH (a:Memory {id: $from_id}), (b:Memory {id: $to_id}) "
-                    f"CREATE (a)-[r:{rel_type}]->(b) "
-                    "SET r = $props",
-                    from_id=child_id,
-                    to_id=rel.get("other_id"),
-                    props=rel.get("props") or {},
-                )
-                redistributed += 1
-            for rel in incoming:
-                rel_type = str(rel.get("rel_type", ""))
-                if rel_type not in _ALLOWED_GRAPH_REL_TYPES:
-                    continue
-                await session.run(
-                    "MATCH (a:Memory {id: $from_id}), (b:Memory {id: $to_id}) "
-                    f"CREATE (a)-[r:{rel_type}]->(b) "
-                    "SET r = $props",
-                    from_id=rel.get("other_id"),
-                    to_id=child_id,
-                    props=rel.get("props") or {},
-                )
-                redistributed += 1
-
-    await graph_store.delete_node(target_id)
-    return {
-        "split_into": split_into,
-        "created_memory_ids": created_memory_ids,
-        "redistributed_relationships": redistributed,
-        "storage": "graph",
-    }
-
-
-async def _merge_entities_in_graph(
-    target_id: str,
-    merge_with_id: str,
-) -> dict | None:
-    """Merge entities in graph storage when Neo4j is configured.
-
-    Returns merge details when both nodes are present in graph, else ``None``.
-    """
-    if _graph_driver is None:
-        return None
-
-    graph_store = GraphStore(_graph_driver)
-    target_node = await graph_store.get_node(target_id)
-    merge_with_node = await graph_store.get_node(merge_with_id)
-    if target_node is None or merge_with_node is None:
-        return None
-
-    merge_executor = MergeExecutor(graph_store)
-    merge_result = await merge_executor.execute_merge(
-        survivor_id=target_id,
-        absorbed_id=merge_with_id,
-        merge_run_id=f"correct_memory_{int(time.time() * 1000)}",
-    )
-    return {
-        "merged_into": merge_result.survivor_id,
-        "merged_from": merge_result.absorbed_id,
-        "aliases_added": merge_result.aliases_added,
-        "relations_transferred": merge_result.relations_transferred,
-        "storage": "graph",
-    }
-
-
-async def _reclassify_in_graph(target_id: str, new_type: str) -> dict | None:
-    """Reclassify a graph node through lifecycle updates when Neo4j is configured."""
-    if _graph_driver is None:
-        return None
-
-    async with _graph_driver.session() as session:
-        result = await session.run(
-            "MATCH (n:Memory {id: $id}) "
-            "RETURN labels(n) AS labels, properties(n) AS props",
-            id=target_id,
-        )
-        record = await result.single()
-        if record is None:
-            return None
-
-        labels = set(record["labels"])
-        props = record["props"] or {}
-        known_types = (
-            "Fact",
-            "Event",
-            "Observation",
-            "Decision",
-            "Outcome",
-            "Agent",
-            "Artifact",
-            "Source",
-            "Pattern",
-            "Concept",
-            "Rule",
-        )
-        old_type = next((label for label in known_types if label in labels), "Memory")
-
-        history_raw = props.get("reclassify_history", [])
-        if not isinstance(history_raw, list):
-            history_raw = []
-        history: list[dict[str, object]] = []
-        for item in history_raw:
-            normalized = _normalize_reclassify_history_entry(item)
-            if normalized is not None:
-                history.append(normalized)
-        now = time.time()
-        history.append(_reclassify_history_record(old_type, new_type, now))
-
-        updates: dict = {
-            # Neo4j properties cannot store nested maps; keep structured entries
-            # encoded as JSON strings for parity with WM history shape.
-            "reclassify_history": [
-                json.dumps(item, separators=(",", ":")) for item in history
-            ],
-            "reclassified_to": new_type,
-            "reclassified_at": now,
-            "updated_at": now,
-        }
-        details: dict = {
-            "old_type": old_type,
-            "new_type": new_type,
-            "storage": "graph",
-        }
-        if "Derived" in labels:
-            updates["status"] = "dissolved"
-            updates["dissolved_at"] = now
-            updates["dissolved_reason"] = f"reclassified_to_{new_type}"
-            details["lifecycle"] = {"target_status": "dissolved"}
-
-        await session.run(
-            "MATCH (n:Memory {id: $id}) SET n += $updates",
-            id=target_id,
-            updates=updates,
-        )
-
-    if "Derived" in labels:
-        from engramcp.engine.confidence import ConfidenceEngine
-        from engramcp.graph.traceability import SourceTraceability
-
-        confidence_engine = ConfidenceEngine(
-            GraphStore(_graph_driver),
-            SourceTraceability(_graph_driver),
-        )
-        cascade = await confidence_engine.cascade_contest(target_id)
-        details["lifecycle"]["cascade"] = {
-            "affected_nodes": cascade.affected_nodes,
-            "reason": cascade.reason,
-        }
-
-    return details
-
-
 @mcp.tool
 async def send_memory(
     content: str,
@@ -729,7 +491,7 @@ async def get_memory(
 
     Args:
         query: Natural language query.
-        max_depth: Reserved for Layer 6 (graph traversal depth). Currently unused.
+        max_depth: Graph traversal depth bound used by Layer 6 context retrieval.
         min_confidence: Minimum NATO rating (e.g. "B2", default "F6").
         include_contradictions: Include contradicting memories.
         include_sources: Include full source chains.
@@ -849,9 +611,11 @@ async def correct_memory(
                 message="split_into must contain at least one item.",
             )
 
-        graph_details = await _split_entity_in_graph(
-            validated.target_id, split_payload.split_into
-        )
+        graph_details = None
+        if _graph_driver is not None:
+            graph_details = await split_entity_in_graph(
+                _graph_driver, validated.target_id, split_payload.split_into
+            )
         if graph_details is not None:
             await _log_correct_memory_event(
                 {
@@ -1061,10 +825,13 @@ async def correct_memory(
                 message="merge_with must be different from target_id.",
             )
 
-        graph_details = await _merge_entities_in_graph(
-            validated.target_id,
-            merge_payload.merge_with,
-        )
+        graph_details = None
+        if _graph_driver is not None:
+            graph_details = await merge_entities_in_graph(
+                _graph_driver,
+                validated.target_id,
+                merge_payload.merge_with,
+            )
         if graph_details is not None:
             await _log_correct_memory_event(
                 {
@@ -1159,10 +926,13 @@ async def correct_memory(
                 message=_validation_message(exc),
             )
 
-        graph_details = await _reclassify_in_graph(
-            validated.target_id,
-            reclass_payload.new_type,
-        )
+        graph_details = None
+        if _graph_driver is not None:
+            graph_details = await reclassify_in_graph(
+                _graph_driver,
+                validated.target_id,
+                reclass_payload.new_type,
+            )
         if graph_details is not None:
             await _log_correct_memory_event(
                 {

@@ -246,3 +246,18 @@ class TestRetrievalEngine:
         assert result.memories[0].causal_chain == []
         assert result.memories[0].sources == []
         assert result.contradictions == []
+
+    async def test_applies_min_confidence_to_graph_results(self):
+        wm = _FakeWorkingMemory(results=[])
+        graph = _RichGraphRetriever()
+        engine = RetrievalEngine(wm, graph_retriever=graph)
+
+        strict = await engine.retrieve(GetMemoryInput(query="storm", min_confidence="A1"))
+        permissive = await engine.retrieve(
+            GetMemoryInput(query="storm", min_confidence="B2")
+        )
+
+        assert strict.meta.total_found == 0
+        assert strict.memories == []
+        assert permissive.meta.total_found == 1
+        assert permissive.memories[0].id == "fact_1"

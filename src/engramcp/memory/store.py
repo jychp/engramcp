@@ -10,9 +10,12 @@ so that ``delete()`` can clean keyword indexes even after TTL expiry.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import re
+import time
+import uuid
 from collections.abc import Awaitable
 from collections.abc import Callable
 
@@ -89,6 +92,7 @@ def _tokenize(text: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 _CLEAR_BATCH_SIZE = 100
+_STORE_ID_RETRY_LIMIT = 5
 
 
 class WorkingMemory:
@@ -117,29 +121,44 @@ class WorkingMemory:
     async def store(self, fragment: MemoryFragment) -> str:
         """Store a fragment and return its ID.
 
-        Uses a single pipeline for the write, keyword indexing, and
-        eviction check.  The flush callback is scheduled as a background
-        task and wrapped in try/except for resilience.
+        Writes fragment data first with ``SET ... NX`` to avoid collisions,
+        then applies index updates. The flush callback is scheduled as a
+        background task and wrapped in try/except for resilience.
         """
-        key = f"{_FRAGMENT_KEY}:{fragment.id}"
-        data = fragment.model_dump_json()
         keywords = list(_tokenize(fragment.content))
+        for _ in range(_STORE_ID_RETRY_LIMIT):
+            key = f"{_FRAGMENT_KEY}:{fragment.id}"
+            data = fragment.model_dump_json()
+            created = await self._redis.set(key, data, ex=self._ttl, nx=True)
+            if not created:
+                fragment.id = f"mem_{uuid.uuid4().hex}"
+                fragment.timestamp = time.time()
+                continue
 
-        pipe = self._redis.pipeline()
-        pipe.set(key, data, ex=self._ttl)
-        pipe.zadd(_RECENCY_KEY, {fragment.id: fragment.timestamp})
+            pipe = self._redis.pipeline()
+            pipe.zadd(_RECENCY_KEY, {fragment.id: fragment.timestamp})
 
-        # Store keywords in a separate key for cleanup after TTL expiry
-        if keywords:
-            kw_key = f"{_FRAG_KW_KEY}:{fragment.id}"
-            pipe.set(kw_key, json.dumps(keywords), ex=self._ttl)
+            # Store keywords in a separate key for cleanup after TTL expiry
+            if keywords:
+                kw_key = f"{_FRAG_KW_KEY}:{fragment.id}"
+                pipe.set(kw_key, json.dumps(keywords), ex=self._ttl)
 
-        # Keyword index
-        for word in keywords:
-            pipe.sadd(f"{_KEYWORD_KEY}:{word}", fragment.id)
-            pipe.expire(f"{_KEYWORD_KEY}:{word}", self._ttl)
+            # Keyword index
+            for word in keywords:
+                pipe.sadd(f"{_KEYWORD_KEY}:{word}", fragment.id)
+                pipe.expire(f"{_KEYWORD_KEY}:{word}", self._ttl)
 
-        await pipe.execute()
+            try:
+                await pipe.execute()
+            except Exception:
+                # Best-effort rollback for payload + indexes. If EXEC applied
+                # partially before an error surfaced, avoid leaving orphaned
+                # index entries that inflate count() and trigger bad evictions.
+                await self._rollback_fragment_write(fragment.id, keywords)
+                raise
+            break
+        else:
+            raise RuntimeError("failed to allocate unique memory fragment ID")
 
         # Evict oldest if over max_size
         await self._evict_if_needed()
@@ -163,12 +182,11 @@ class WorkingMemory:
         try:
             async with self._flush_lock:
                 fragments = await self.get_recent(limit=current)
-                try:
-                    if self._on_flush is None:
-                        raise RuntimeError("on_flush callback is not configured")
-                    await self._on_flush(fragments)
-                except Exception:
-                    logger.exception("on_flush callback failed")
+                if self._on_flush is None:
+                    raise RuntimeError("on_flush callback is not configured")
+                await self._on_flush(fragments)
+        except Exception:
+            logger.exception("flush task failed")
         finally:
             retrigger = self._flush_pending
             self._flush_pending = False
@@ -177,9 +195,13 @@ class WorkingMemory:
                 self._flush_task = None
 
             if retrigger and self._flush_threshold and self._on_flush:
-                latest = await self.count()
-                if latest >= self._flush_threshold:
-                    self._trigger_flush(latest)
+                try:
+                    latest = await self.count()
+                except Exception:
+                    logger.exception("flush retrigger count check failed")
+                else:
+                    if latest >= self._flush_threshold:
+                        self._trigger_flush(latest)
 
     # -- read --
 
@@ -324,6 +346,12 @@ class WorkingMemory:
 
     async def close(self) -> None:
         """Close the underlying Redis client."""
+        if self._flush_task is not None and not self._flush_task.done():
+            self._flush_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._flush_task
+        self._flush_task = None
+        self._flush_pending = False
         try:
             await self._redis.aclose()
         except RuntimeError as exc:
@@ -332,6 +360,20 @@ class WorkingMemory:
                 raise
 
     # -- internal --
+
+    async def _rollback_fragment_write(
+        self, fragment_id: str, keywords: list[str]
+    ) -> None:
+        """Best-effort cleanup for a failed store() attempt."""
+        with contextlib.suppress(Exception):
+            await self._redis.delete(f"{_FRAGMENT_KEY}:{fragment_id}")
+        with contextlib.suppress(Exception):
+            await self._redis.zrem(_RECENCY_KEY, fragment_id)
+        with contextlib.suppress(Exception):
+            await self._redis.delete(f"{_FRAG_KW_KEY}:{fragment_id}")
+        for word in keywords:
+            with contextlib.suppress(Exception):
+                await self._redis.srem(f"{_KEYWORD_KEY}:{word}", fragment_id)
 
     async def _evict_if_needed(self) -> None:
         """Evict oldest fragments if count exceeds max_size."""

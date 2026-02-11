@@ -23,7 +23,7 @@ def create_memory_fragment(
     Encapsulates confidence rating construction, source assembly, and
     agent fingerprint computation.
     """
-    memory_id = f"mem_{uuid.uuid4().hex[:16]}"
+    memory_id = f"mem_{uuid.uuid4().hex}"
 
     # Default confidence: hint letter + uncorroborated number
     confidence = f"{confidence_hint or 'F'}3"
@@ -32,7 +32,7 @@ def create_memory_fragment(
     if source:
         sources.append(
             {
-                "id": f"src_{uuid.uuid4().hex[:16]}",
+                "id": f"src_{uuid.uuid4().hex}",
                 "type": source.get("type", "unknown"),
                 "ref": source.get("ref"),
                 "citation": source.get("citation"),

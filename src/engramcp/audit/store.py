@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from functools import partial
 from pathlib import Path
+
+from pydantic import ValidationError
 
 from engramcp.audit.schemas import AuditEvent
 from engramcp.audit.schemas import AuditEventType
 from engramcp.config import AuditConfig
+
+logger = logging.getLogger(__name__)
 
 
 class AuditLogger:
@@ -59,8 +64,16 @@ class AuditLogger:
         async with self._lock:
             raw = await asyncio.to_thread(path.read_text)
         events: list[AuditEvent] = []
-        for line in raw.strip().splitlines():
-            evt = AuditEvent.model_validate_json(line)
+        for line_no, line in enumerate(raw.strip().splitlines(), start=1):
+            try:
+                evt = AuditEvent.model_validate_json(line)
+            except ValidationError:
+                logger.warning(
+                    "Skipping malformed audit event line %d in %s",
+                    line_no,
+                    path,
+                )
+                continue
             if event_type is not None and evt.event_type != event_type:
                 continue
             if since is not None and evt.timestamp < since:

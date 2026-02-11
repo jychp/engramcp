@@ -359,39 +359,51 @@ class GraphStore:
                 limit=limit,
             )
             nodes = [record.data() async for record in node_result]
+            node_ids = [
+                str(_convert_props(record["props"]).get("id"))
+                for record in nodes
+                if _convert_props(record["props"]).get("id")
+            ]
+            if not node_ids:
+                return []
+
+            causal_map = await self._fetch_causal_chains_for_nodes(
+                session=session,
+                node_ids=node_ids,
+                max_depth=max_depth,
+            )
+            sources_map: dict[str, list[dict]] = {}
+            if include_sources:
+                sources_map = await self._fetch_source_trails_for_nodes(
+                    session=session, node_ids=node_ids
+                )
+            contradictions_map: dict[str, list[dict]] = {}
+            if include_contradictions:
+                contradictions_map = await self._fetch_contradictions_for_nodes(
+                    session=session, node_ids=node_ids
+                )
+
             contexts: list[dict] = []
             for node_record in nodes:
                 props = _convert_props(node_record["props"])
                 node_id = props.get("id")
                 if not node_id:
                     continue
-
-                context = {
-                    "node": {
-                        "id": props["id"],
-                        "content": props.get("content", ""),
-                        "labels": list(node_record["labels"]),
-                        "confidence": props.get("confidence"),
-                        "properties": props,
-                    },
-                    "causal_chain": await self._fetch_causal_chain(
-                        session=session, node_id=node_id, max_depth=max_depth
-                    ),
-                    "sources": [],
-                    "contradictions": [],
-                }
-
-                if include_sources:
-                    context["sources"] = await self._fetch_source_trail(
-                        session=session, node_id=node_id
-                    )
-
-                if include_contradictions:
-                    context["contradictions"] = await self._fetch_contradictions(
-                        session=session, node_id=node_id
-                    )
-
-                contexts.append(context)
+                node_id_str = str(node_id)
+                contexts.append(
+                    {
+                        "node": {
+                            "id": node_id_str,
+                            "content": props.get("content", ""),
+                            "labels": list(node_record["labels"]),
+                            "confidence": props.get("confidence"),
+                            "properties": props,
+                        },
+                        "causal_chain": causal_map.get(node_id_str, []),
+                        "sources": sources_map.get(node_id_str, []),
+                        "contradictions": contradictions_map.get(node_id_str, []),
+                    }
+                )
             return contexts
 
     async def find_contradictions_unresolved(self) -> list[dict]:
@@ -476,111 +488,130 @@ class GraphStore:
                 nodes.append(node)
             return nodes
 
-    async def _fetch_causal_chain(
+    async def _fetch_causal_chains_for_nodes(
         self,
         *,
         session,
-        node_id: str,
+        node_ids: list[str],
         max_depth: int,
-    ) -> list[dict]:
+    ) -> dict[str, list[dict]]:
         rel_types = ["CAUSED_BY", "LEADS_TO", "PRECEDED", "FOLLOWED"]
         query = (
-            "MATCH p = (n:Memory {id: $node_id})-[rels*1.."
+            "MATCH (n:Memory) "
+            "WHERE n.id IN $node_ids "
+            "OPTIONAL MATCH p = (n)-[rels*1.."
             f"{max_depth}"
             "]-(m:Memory) "
             "WHERE ALL(rel IN rels WHERE type(rel) IN $rel_types) "
-            "WITH m, p "
-            "ORDER BY length(p) ASC "
-            "WITH m, last(relationships(p)) AS terminal_rel "
-            "RETURN DISTINCT "
-            "type(terminal_rel) AS relation, "
-            "m.id AS target_id, "
-            "coalesce(m.content, '') AS target_summary, "
-            "coalesce(terminal_rel.credibility, terminal_rel.confidence, null) AS confidence "
-            "LIMIT 20"
+            "WITH n.id AS node_id, m, p "
+            "ORDER BY node_id, length(p) ASC "
+            "WITH node_id, collect(DISTINCT CASE "
+            "  WHEN m IS NULL OR p IS NULL THEN NULL "
+            "  ELSE {"
+            "    relation: type(last(relationships(p))), "
+            "    target_id: m.id, "
+            "    target_summary: coalesce(m.content, ''), "
+            "    confidence: coalesce(last(relationships(p)).credibility, "
+            "                         last(relationships(p)).confidence, null)"
+            "  } "
+            "END) AS raw_links "
+            "RETURN node_id, [item IN raw_links WHERE item IS NOT NULL][0..20] AS links"
         )
-        result = await session.run(query, node_id=node_id, rel_types=rel_types)
-        links: list[dict] = []
+        result = await session.run(query, node_ids=node_ids, rel_types=rel_types)
+        by_node: dict[str, list[dict]] = {}
         async for record in result:
-            links.append(
-                {
-                    "relation": record["relation"],
-                    "target_id": record["target_id"],
-                    "target_summary": record["target_summary"],
-                    "confidence": record["confidence"],
-                }
-            )
-        return links
+            by_node[str(record["node_id"])] = list(record["links"] or [])
+        return by_node
 
-    async def _fetch_source_trail(self, *, session, node_id: str) -> list[dict]:
+    async def _fetch_source_trails_for_nodes(
+        self, *, session, node_ids: list[str]
+    ) -> dict[str, list[dict]]:
         query = (
-            "MATCH (n:Memory {id: $node_id})-[r:SOURCED_FROM]->(s:Source) "
-            "RETURN properties(s) AS source_props, properties(r) AS rel_props "
-            "ORDER BY s.ingested_at DESC "
-            "LIMIT 20"
+            "MATCH (n:Memory) "
+            "WHERE n.id IN $node_ids "
+            "OPTIONAL MATCH (n)-[r:SOURCED_FROM]->(s:Source) "
+            "WITH n.id AS node_id, s, r "
+            "ORDER BY node_id, s.ingested_at DESC "
+            "WITH node_id, collect(CASE "
+            "  WHEN s IS NULL THEN NULL "
+            "  ELSE {"
+            "    id: s.id, "
+            "    type: coalesce(s.type, 'unknown'), "
+            "    ref: s.ref, "
+            "    citation: s.citation, "
+            "    reliability: s.reliability, "
+            "    credibility: toString(r.credibility)"
+            "  } "
+            "END) AS raw_sources "
+            "RETURN node_id, [item IN raw_sources WHERE item IS NOT NULL][0..20] AS sources"
         )
-        result = await session.run(query, node_id=node_id)
-        sources: list[dict] = []
+        result = await session.run(query, node_ids=node_ids)
+        by_node: dict[str, list[dict]] = {}
         async for record in result:
-            source_props = _convert_props(record["source_props"])
-            rel_props = _convert_props(record["rel_props"])
-            credibility_raw = rel_props.get("credibility")
-            if credibility_raw is not None:
-                credibility_raw = str(credibility_raw)
-            sources.append(
-                {
-                    "id": source_props.get("id"),
-                    "type": source_props.get("type", "unknown"),
-                    "ref": source_props.get("ref"),
-                    "citation": source_props.get("citation"),
-                    "reliability": source_props.get("reliability"),
-                    "credibility": credibility_raw,
-                }
-            )
-        return sources
+            by_node[str(record["node_id"])] = list(record["sources"] or [])
+        return by_node
 
-    async def _fetch_contradictions(self, *, session, node_id: str) -> list[dict]:
+    async def _fetch_contradictions_for_nodes(
+        self, *, session, node_ids: list[str]
+    ) -> dict[str, list[dict]]:
         query = (
-            "MATCH (n:Memory {id: $node_id})-[r:CONTRADICTS]-(m:Memory) "
+            "MATCH (n:Memory) "
+            "WHERE n.id IN $node_ids "
+            "OPTIONAL MATCH (n)-[r:CONTRADICTS]-(m:Memory) "
             "WHERE r.resolution_status = $status "
-            "RETURN properties(r) AS rel_props, properties(m) AS mem_props, labels(m) AS mem_labels "
-            "ORDER BY r.detected_at DESC "
-            "LIMIT 20"
+            "WITH n.id AS node_id, r, m, labels(m) AS mem_labels "
+            "ORDER BY node_id, r.detected_at DESC "
+            "WITH node_id, collect(CASE "
+            "  WHEN r IS NULL OR m IS NULL THEN NULL "
+            "  ELSE {"
+            "    id: coalesce(r.id, ''), "
+            "    memory_id: node_id, "
+            "    nature: 'factual_conflict', "
+            "    resolution_status: coalesce(r.resolution_status, $status), "
+            "    detected_at: toString(r.detected_at), "
+            "    memory: {"
+            "      id: coalesce(m.id, ''), "
+            "      content: coalesce(m.content, ''), "
+            "      labels: mem_labels, "
+            "      confidence: m.confidence, "
+            "      properties: properties(m)"
+            "    }"
+            "  } "
+            "END) AS raw_contradictions "
+            "RETURN node_id, [item IN raw_contradictions WHERE item IS NOT NULL][0..20] AS contradictions"
         )
         result = await session.run(
             query,
-            node_id=node_id,
+            node_ids=node_ids,
             status=ResolutionStatus.unresolved.value,
         )
-        contradictions: list[dict] = []
-        index = 0
+        by_node: dict[str, list[dict]] = {}
         async for record in result:
-            index += 1
-            rel_props = _convert_props(record["rel_props"])
-            mem_props = _convert_props(record["mem_props"])
-            contradiction_id = rel_props.get("id")
-            if not contradiction_id:
-                contradiction_id = f"{node_id}:contra:{index}"
-            contradictions.append(
-                {
-                    "id": contradiction_id,
-                    "memory_id": node_id,
-                    "nature": "factual_conflict",
-                    "resolution_status": rel_props.get(
-                        "resolution_status", ResolutionStatus.unresolved.value
-                    ),
-                    "detected_at": (
-                        rel_props["detected_at"].isoformat()
-                        if rel_props.get("detected_at") is not None
-                        else None
-                    ),
-                    "memory": {
-                        "id": mem_props.get("id", ""),
-                        "content": mem_props.get("content", ""),
-                        "labels": list(record["mem_labels"]),
-                        "confidence": mem_props.get("confidence"),
-                        "properties": mem_props,
-                    },
-                }
-            )
-        return contradictions
+            node_id = str(record["node_id"])
+            raw_items: list[dict] = list(record["contradictions"] or [])
+            normalized: list[dict] = []
+            for idx, item in enumerate(raw_items, start=1):
+                contradiction_id = item.get("id") or f"{node_id}:contra:{idx}"
+                contradictory = item.get("memory", {}) or {}
+                normalized.append(
+                    {
+                        "id": contradiction_id,
+                        "memory_id": node_id,
+                        "nature": item.get("nature", "factual_conflict"),
+                        "resolution_status": item.get(
+                            "resolution_status", ResolutionStatus.unresolved.value
+                        ),
+                        "detected_at": item.get("detected_at"),
+                        "memory": {
+                            "id": contradictory.get("id", ""),
+                            "content": contradictory.get("content", ""),
+                            "labels": contradictory.get("labels", []),
+                            "confidence": contradictory.get("confidence"),
+                            "properties": _convert_props(
+                                contradictory.get("properties", {}) or {}
+                            ),
+                        },
+                    }
+                )
+            by_node[node_id] = normalized
+        return by_node

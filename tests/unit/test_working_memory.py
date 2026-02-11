@@ -94,6 +94,71 @@ class TestWrite:
         assert retrieved is not None
         assert retrieved.agent_fingerprint == fp
 
+    async def test_store_regenerates_id_on_collision(self, wm):
+        first = _make_fragment("collision-one")
+        duplicate = _make_fragment("collision-two", id=first.id)
+
+        first_id = await wm.store(first)
+        score_before = await wm._redis.zscore("engramcp:recency", first_id)
+        second_id = await wm.store(duplicate)
+        score_after = await wm._redis.zscore("engramcp:recency", first_id)
+
+        assert first_id == first.id
+        assert second_id != first_id
+        assert await wm.exists(first_id)
+        assert await wm.exists(second_id)
+        assert score_before == score_after
+
+    async def test_store_rolls_back_fragment_if_index_pipeline_fails(
+        self, wm, monkeypatch
+    ):
+        fragment = _make_fragment("rollback case with keywords")
+        key = f"engramcp:fragment:{fragment.id}"
+        recency_key = "engramcp:recency"
+        frag_kw_key = f"engramcp:frag_kw:{fragment.id}"
+        keywords = {"rollback", "case", "with", "keywords"}
+
+        class _FailingPipeline:
+            def __init__(self, redis):
+                self._redis = redis
+                self._ops: list[tuple[str, tuple, dict]] = []
+
+            def zadd(self, *_args, **_kwargs):
+                self._ops.append(("zadd", _args, _kwargs))
+                return self
+
+            def set(self, *_args, **_kwargs):
+                self._ops.append(("set", _args, _kwargs))
+                return self
+
+            def sadd(self, *_args, **_kwargs):
+                self._ops.append(("sadd", _args, _kwargs))
+                return self
+
+            def expire(self, *_args, **_kwargs):
+                self._ops.append(("expire", _args, _kwargs))
+                return self
+
+            async def execute(self):
+                # Simulate an error after some writes were already applied.
+                for idx, (name, args, kwargs) in enumerate(self._ops):
+                    if idx >= 3:
+                        break
+                    await getattr(self._redis, name)(*args, **kwargs)
+                raise RuntimeError("pipeline boom")
+
+        monkeypatch.setattr(wm._redis, "pipeline", lambda: _FailingPipeline(wm._redis))
+
+        with pytest.raises(RuntimeError, match="pipeline boom"):
+            await wm.store(fragment)
+
+        assert await wm._redis.get(key) is None
+        assert await wm._redis.zscore(recency_key, fragment.id) is None
+        assert await wm._redis.get(frag_kw_key) is None
+        for word in keywords:
+            assert not await wm._redis.sismember(f"engramcp:keyword:{word}", fragment.id)
+        assert await wm.count() == 0
+
 
 # -----------------------------------------------------------------------
 # TestRead
@@ -217,6 +282,45 @@ class TestLifecycle:
 
         await asyncio.sleep(0.35)
         assert call_count >= 2
+
+    async def test_flush_failure_does_not_leave_dangling_task(self, redis_client, monkeypatch):
+        async def on_flush(_: list[MemoryFragment]) -> None:
+            return None
+
+        wm = WorkingMemory(
+            redis_client,
+            ttl=3600,
+            max_size=1000,
+            flush_threshold=1,
+            on_flush=on_flush,
+        )
+        async def fail_get_recent(*, limit: int = 20) -> list[MemoryFragment]:
+            del limit
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(wm, "get_recent", fail_get_recent)
+        await wm.store(_make_fragment("flush boom"))
+        await asyncio.sleep(0.05)
+        assert wm._flush_task is None
+
+    async def test_close_cancels_running_flush_task(self, redis_client):
+        started = asyncio.Event()
+
+        async def on_flush(_: list[MemoryFragment]) -> None:
+            started.set()
+            await asyncio.sleep(1.0)
+
+        wm = WorkingMemory(
+            redis_client,
+            ttl=3600,
+            max_size=1000,
+            flush_threshold=1,
+            on_flush=on_flush,
+        )
+        await wm.store(_make_fragment("slow flush"))
+        await asyncio.wait_for(started.wait(), timeout=0.2)
+        await wm.close()
+        assert wm._flush_task is None
 
     async def test_evict_cleans_keyword_index_without_frag_kw(self, redis_client):
         wm = WorkingMemory(redis_client, ttl=3600, max_size=1)
