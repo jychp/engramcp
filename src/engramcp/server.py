@@ -491,7 +491,7 @@ async def get_memory(
 
     Args:
         query: Natural language query.
-        max_depth: Reserved for Layer 6 (graph traversal depth). Currently unused.
+        max_depth: Graph traversal depth bound used by Layer 6 context retrieval.
         min_confidence: Minimum NATO rating (e.g. "B2", default "F6").
         include_contradictions: Include contradicting memories.
         include_sources: Include full source chains.

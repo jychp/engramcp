@@ -133,6 +133,7 @@ src/engramcp/
 │   ├── store.py            # CRUD operations + query methods
 │   ├── schema.py           # Index/constraint init
 │   ├── entity_resolution.py # Three-level entity resolution
+│   ├── corrections.py      # Graph-native split/merge/reclassify correction services
 │   └── traceability.py     # Source chain traversal, independence detection
 ├── engine/                 # Processing engines (Layers 3-6)
 │   ├── __init__.py         # Re-exports ConfidenceEngine, ExtractionEngine, etc.
