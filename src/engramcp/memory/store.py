@@ -148,7 +148,14 @@ class WorkingMemory:
                 pipe.sadd(f"{_KEYWORD_KEY}:{word}", fragment.id)
                 pipe.expire(f"{_KEYWORD_KEY}:{word}", self._ttl)
 
-            await pipe.execute()
+            try:
+                await pipe.execute()
+            except Exception:
+                # Roll back standalone fragment write to avoid orphaned payloads
+                # with missing recency/keyword indexes.
+                with contextlib.suppress(Exception):
+                    await self._redis.delete(key)
+                raise
             break
         else:
             raise RuntimeError("failed to allocate unique memory fragment ID")

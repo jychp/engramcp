@@ -109,6 +109,35 @@ class TestWrite:
         assert await wm.exists(second_id)
         assert score_before == score_after
 
+    async def test_store_rolls_back_fragment_if_index_pipeline_fails(
+        self, wm, monkeypatch
+    ):
+        fragment = _make_fragment("rollback-case")
+        key = f"engramcp:fragment:{fragment.id}"
+
+        class _FailingPipeline:
+            def zadd(self, *_args, **_kwargs):
+                return self
+
+            def set(self, *_args, **_kwargs):
+                return self
+
+            def sadd(self, *_args, **_kwargs):
+                return self
+
+            def expire(self, *_args, **_kwargs):
+                return self
+
+            async def execute(self):
+                raise RuntimeError("pipeline boom")
+
+        monkeypatch.setattr(wm._redis, "pipeline", lambda: _FailingPipeline())
+
+        with pytest.raises(RuntimeError, match="pipeline boom"):
+            await wm.store(fragment)
+
+        assert await wm._redis.get(key) is None
+
 
 # -----------------------------------------------------------------------
 # TestRead
