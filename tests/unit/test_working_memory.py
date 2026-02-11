@@ -94,6 +94,18 @@ class TestWrite:
         assert retrieved is not None
         assert retrieved.agent_fingerprint == fp
 
+    async def test_store_regenerates_id_on_collision(self, wm):
+        first = _make_fragment("collision-one")
+        duplicate = _make_fragment("collision-two", id=first.id)
+
+        first_id = await wm.store(first)
+        second_id = await wm.store(duplicate)
+
+        assert first_id == first.id
+        assert second_id != first_id
+        assert await wm.exists(first_id)
+        assert await wm.exists(second_id)
+
 
 # -----------------------------------------------------------------------
 # TestRead

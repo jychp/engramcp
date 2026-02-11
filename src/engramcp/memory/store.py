@@ -14,6 +14,8 @@ import contextlib
 import json
 import logging
 import re
+import time
+import uuid
 from collections.abc import Awaitable
 from collections.abc import Callable
 
@@ -90,6 +92,7 @@ def _tokenize(text: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 _CLEAR_BATCH_SIZE = 100
+_STORE_ID_RETRY_LIMIT = 5
 
 
 class WorkingMemory:
@@ -122,25 +125,32 @@ class WorkingMemory:
         eviction check.  The flush callback is scheduled as a background
         task and wrapped in try/except for resilience.
         """
-        key = f"{_FRAGMENT_KEY}:{fragment.id}"
-        data = fragment.model_dump_json()
         keywords = list(_tokenize(fragment.content))
+        for _ in range(_STORE_ID_RETRY_LIMIT):
+            key = f"{_FRAGMENT_KEY}:{fragment.id}"
+            data = fragment.model_dump_json()
+            pipe = self._redis.pipeline()
+            pipe.set(key, data, ex=self._ttl, nx=True)
+            pipe.zadd(_RECENCY_KEY, {fragment.id: fragment.timestamp})
 
-        pipe = self._redis.pipeline()
-        pipe.set(key, data, ex=self._ttl)
-        pipe.zadd(_RECENCY_KEY, {fragment.id: fragment.timestamp})
+            # Store keywords in a separate key for cleanup after TTL expiry
+            if keywords:
+                kw_key = f"{_FRAG_KW_KEY}:{fragment.id}"
+                pipe.set(kw_key, json.dumps(keywords), ex=self._ttl)
 
-        # Store keywords in a separate key for cleanup after TTL expiry
-        if keywords:
-            kw_key = f"{_FRAG_KW_KEY}:{fragment.id}"
-            pipe.set(kw_key, json.dumps(keywords), ex=self._ttl)
+            # Keyword index
+            for word in keywords:
+                pipe.sadd(f"{_KEYWORD_KEY}:{word}", fragment.id)
+                pipe.expire(f"{_KEYWORD_KEY}:{word}", self._ttl)
 
-        # Keyword index
-        for word in keywords:
-            pipe.sadd(f"{_KEYWORD_KEY}:{word}", fragment.id)
-            pipe.expire(f"{_KEYWORD_KEY}:{word}", self._ttl)
-
-        await pipe.execute()
+            write_result = await pipe.execute()
+            created = bool(write_result[0])
+            if created:
+                break
+            fragment.id = f"mem_{uuid.uuid4().hex}"
+            fragment.timestamp = time.time()
+        else:
+            raise RuntimeError("failed to allocate unique memory fragment ID")
 
         # Evict oldest if over max_size
         await self._evict_if_needed()
