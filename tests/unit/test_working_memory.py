@@ -99,12 +99,15 @@ class TestWrite:
         duplicate = _make_fragment("collision-two", id=first.id)
 
         first_id = await wm.store(first)
+        score_before = await wm._redis.zscore("engramcp:recency", first_id)
         second_id = await wm.store(duplicate)
+        score_after = await wm._redis.zscore("engramcp:recency", first_id)
 
         assert first_id == first.id
         assert second_id != first_id
         assert await wm.exists(first_id)
         assert await wm.exists(second_id)
+        assert score_before == score_after
 
 
 # -----------------------------------------------------------------------

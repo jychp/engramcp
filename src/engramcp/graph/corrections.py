@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from enum import Enum
 
 from neo4j import AsyncDriver
 
@@ -90,6 +91,19 @@ def _build_split_graph_node(target_node: MemoryNode, split_value: str) -> Memory
     return type(target_node)(**payload)
 
 
+def _serialize_node_props(node: MemoryNode) -> dict:
+    data = node.model_dump(exclude_none=True)
+    result: dict = {}
+    for key, value in data.items():
+        if isinstance(value, Enum):
+            result[key] = value.value
+        elif isinstance(value, list):
+            result[key] = [v.value if isinstance(v, Enum) else v for v in value]
+        else:
+            result[key] = value
+    return result
+
+
 async def split_entity_in_graph(
     driver: AsyncDriver, target_id: str, split_into: list[str]
 ) -> dict | None:
@@ -100,57 +114,68 @@ async def split_entity_in_graph(
         return None
 
     created_memory_ids: list[str] = []
-    for split_value in split_into:
-        new_node = _build_split_graph_node(target_node, split_value)
-        created_memory_ids.append(await graph_store.create_node(new_node))
 
-    outgoing: list[dict] = []
-    incoming: list[dict] = []
     async with driver.session() as session:
-        outgoing_result = await session.run(
-            "MATCH (n:Memory {id: $id})-[r]->(m:Memory) "
-            "RETURN type(r) AS rel_type, properties(r) AS props, m.id AS other_id",
-            id=target_id,
-        )
-        outgoing = [record.data() async for record in outgoing_result]
 
-        incoming_result = await session.run(
-            "MATCH (m:Memory)-[r]->(n:Memory {id: $id}) "
-            "RETURN type(r) AS rel_type, properties(r) AS props, m.id AS other_id",
-            id=target_id,
-        )
-        incoming = [record.data() async for record in incoming_result]
-
-        redistributed = 0
-        for child_id in created_memory_ids:
-            for rel in outgoing:
-                rel_type = str(rel.get("rel_type", ""))
-                if rel_type not in _ALLOWED_GRAPH_REL_TYPES:
-                    continue
-                await session.run(
-                    "MATCH (a:Memory {id: $from_id}), (b:Memory {id: $to_id}) "
-                    f"CREATE (a)-[r:{rel_type}]->(b) "
-                    "SET r = $props",
-                    from_id=child_id,
-                    to_id=rel.get("other_id"),
-                    props=rel.get("props") or {},
+        async def _run_split(tx):
+            local_created_ids: list[str] = []
+            local_redistributed = 0
+            for split_value in split_into:
+                new_node = _build_split_graph_node(target_node, split_value)
+                local_created_ids.append(new_node.id)
+                labels = ":".join(new_node.node_labels)
+                await tx.run(
+                    f"CREATE (n:{labels} $props)",
+                    props=_serialize_node_props(new_node),
                 )
-                redistributed += 1
-            for rel in incoming:
-                rel_type = str(rel.get("rel_type", ""))
-                if rel_type not in _ALLOWED_GRAPH_REL_TYPES:
-                    continue
-                await session.run(
-                    "MATCH (a:Memory {id: $from_id}), (b:Memory {id: $to_id}) "
-                    f"CREATE (a)-[r:{rel_type}]->(b) "
-                    "SET r = $props",
-                    from_id=rel.get("other_id"),
-                    to_id=child_id,
-                    props=rel.get("props") or {},
-                )
-                redistributed += 1
 
-    await graph_store.delete_node(target_id)
+            outgoing_result = await tx.run(
+                "MATCH (n:Memory {id: $id})-[r]->(m:Memory) "
+                "RETURN type(r) AS rel_type, properties(r) AS props, m.id AS other_id",
+                id=target_id,
+            )
+            outgoing = [record.data() async for record in outgoing_result]
+
+            incoming_result = await tx.run(
+                "MATCH (m:Memory)-[r]->(n:Memory {id: $id}) "
+                "RETURN type(r) AS rel_type, properties(r) AS props, m.id AS other_id",
+                id=target_id,
+            )
+            incoming = [record.data() async for record in incoming_result]
+
+            for child_id in local_created_ids:
+                for rel in outgoing:
+                    rel_type = str(rel.get("rel_type", ""))
+                    if rel_type not in _ALLOWED_GRAPH_REL_TYPES:
+                        continue
+                    await tx.run(
+                        "MATCH (a:Memory {id: $from_id}), (b:Memory {id: $to_id}) "
+                        f"CREATE (a)-[r:{rel_type}]->(b) "
+                        "SET r = $props",
+                        from_id=child_id,
+                        to_id=rel.get("other_id"),
+                        props=rel.get("props") or {},
+                    )
+                    local_redistributed += 1
+                for rel in incoming:
+                    rel_type = str(rel.get("rel_type", ""))
+                    if rel_type not in _ALLOWED_GRAPH_REL_TYPES:
+                        continue
+                    await tx.run(
+                        "MATCH (a:Memory {id: $from_id}), (b:Memory {id: $to_id}) "
+                        f"CREATE (a)-[r:{rel_type}]->(b) "
+                        "SET r = $props",
+                        from_id=rel.get("other_id"),
+                        to_id=child_id,
+                        props=rel.get("props") or {},
+                    )
+                    local_redistributed += 1
+
+            await tx.run("MATCH (n:Memory {id: $id}) DETACH DELETE n", id=target_id)
+            return local_created_ids, local_redistributed
+
+        created_memory_ids, redistributed = await session.execute_write(_run_split)
+
     return {
         "split_into": split_into,
         "created_memory_ids": created_memory_ids,

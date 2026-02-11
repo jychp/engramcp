@@ -121,16 +121,21 @@ class WorkingMemory:
     async def store(self, fragment: MemoryFragment) -> str:
         """Store a fragment and return its ID.
 
-        Uses a single pipeline for the write, keyword indexing, and
-        eviction check.  The flush callback is scheduled as a background
-        task and wrapped in try/except for resilience.
+        Writes fragment data first with ``SET ... NX`` to avoid collisions,
+        then applies index updates. The flush callback is scheduled as a
+        background task and wrapped in try/except for resilience.
         """
         keywords = list(_tokenize(fragment.content))
         for _ in range(_STORE_ID_RETRY_LIMIT):
             key = f"{_FRAGMENT_KEY}:{fragment.id}"
             data = fragment.model_dump_json()
+            created = await self._redis.set(key, data, ex=self._ttl, nx=True)
+            if not created:
+                fragment.id = f"mem_{uuid.uuid4().hex}"
+                fragment.timestamp = time.time()
+                continue
+
             pipe = self._redis.pipeline()
-            pipe.set(key, data, ex=self._ttl, nx=True)
             pipe.zadd(_RECENCY_KEY, {fragment.id: fragment.timestamp})
 
             # Store keywords in a separate key for cleanup after TTL expiry
@@ -143,12 +148,8 @@ class WorkingMemory:
                 pipe.sadd(f"{_KEYWORD_KEY}:{word}", fragment.id)
                 pipe.expire(f"{_KEYWORD_KEY}:{word}", self._ttl)
 
-            write_result = await pipe.execute()
-            created = bool(write_result[0])
-            if created:
-                break
-            fragment.id = f"mem_{uuid.uuid4().hex}"
-            fragment.timestamp = time.time()
+            await pipe.execute()
+            break
         else:
             raise RuntimeError("failed to allocate unique memory fragment ID")
 
