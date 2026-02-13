@@ -60,6 +60,13 @@ class TestToolAuthorization:
         decision = authorize_tool("correct_memory", token=token)
         assert decision.allowed is True
 
+    def test_allows_unmapped_tool_when_requirements_are_empty(self, monkeypatch) -> None:
+        monkeypatch.setenv("MCP_AUTHZ_ENABLED", "1")
+        token = _token([])
+
+        decision = authorize_tool("future_tool", token=token)
+        assert decision.allowed is True
+
 
 class TestCorrectionAuthorization:
     def test_denies_split_for_editor_role(self, monkeypatch) -> None:

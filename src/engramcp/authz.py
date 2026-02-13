@@ -89,6 +89,8 @@ def _has_required_scope(
     token_scopes: set[str],
     required_scopes: set[str],
 ) -> bool:
+    if not required_scopes:
+        return True
     if _WILDCARD_SCOPE in token_scopes:
         return True
     return bool(token_scopes.intersection(required_scopes))
