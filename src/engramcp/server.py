@@ -11,6 +11,7 @@ import time
 from time import perf_counter
 
 from fastmcp import FastMCP
+from fastmcp.server.dependencies import get_access_token
 from neo4j import AsyncDriver
 from neo4j import AsyncGraphDatabase
 from pydantic import ValidationError
@@ -20,6 +21,8 @@ from engramcp.audit import AuditEvent
 from engramcp.audit import AuditEventType
 from engramcp.audit import AuditLogger
 from engramcp.auth import create_mcp_auth
+from engramcp.authz import authorize_correction_action
+from engramcp.authz import authorize_tool
 from engramcp.config import AuditConfig
 from engramcp.config import ConsolidationConfig
 from engramcp.config import EntityResolutionConfig
@@ -432,6 +435,12 @@ async def send_memory(
     ok = False
     try:
         wm = _get_wm()
+        authz = authorize_tool("send_memory", get_access_token())
+        if not authz.allowed:
+            return _send_rejected(
+                authz.error_code or "forbidden",
+                authz.message or "Not authorized to call send_memory.",
+            )
 
         try:
             validated = SendMemoryInput.model_validate(
@@ -502,6 +511,15 @@ async def get_memory(
     ok = False
     try:
         _get_wm()
+        authz = authorize_tool("get_memory", get_access_token())
+        if not authz.allowed:
+            return _get_error(
+                query=query,
+                max_depth=max_depth,
+                min_confidence=min_confidence,
+                error_code=authz.error_code or "forbidden",
+                message=authz.message or "Not authorized to call get_memory.",
+            )
         try:
             validated = GetMemoryInput.model_validate(
                 {
@@ -558,6 +576,13 @@ async def correct_memory(
         payload: Action-specific data.
     """
     wm = _get_wm()
+    authz = authorize_tool("correct_memory", get_access_token())
+    if not authz.allowed:
+        return _correct_rejected(
+            target_id,
+            error_code=authz.error_code or "forbidden",
+            message=authz.message or "Not authorized to call correct_memory.",
+        )
     try:
         validated = CorrectMemoryInput.model_validate(
             {
@@ -581,6 +606,18 @@ async def correct_memory(
             validated.target_id,
             error_code="invalid_action",
             message=f"Invalid action: {validated.action}",
+        )
+
+    action_authz = authorize_correction_action(action_enum, get_access_token())
+    if not action_authz.allowed:
+        return _correct_rejected(
+            validated.target_id,
+            action=action_enum,
+            error_code=action_authz.error_code or "forbidden",
+            message=(
+                action_authz.message
+                or f"Not authorized to call correct_memory/{action_enum.value}."
+            ),
         )
 
     if action_enum in (
