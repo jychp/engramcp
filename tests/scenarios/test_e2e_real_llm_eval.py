@@ -45,7 +45,7 @@ def _parse(result) -> dict:
     return json.loads(result.content[0].text)
 
 
-async def _wait_until(predicate, *, timeout: float = 20.0, interval: float = 0.05) -> bool:
+async def _wait_until(predicate, *, timeout: float = 120.0, interval: float = 0.05) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if await predicate():

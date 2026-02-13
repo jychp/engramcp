@@ -255,6 +255,17 @@ class TestEntityResolution:
         assert any("UnknownType" in e for e in result.errors)
         entity_resolver.resolve.assert_not_called()
 
+    async def test_claim_like_entity_type_is_skipped_without_error(
+        self, pipeline, extraction_engine, entity_resolver, graph_store
+    ):
+        entity = _make_entity(name="1889", type="Fact")
+        extraction_engine.extract.return_value = ExtractionResult(entities=[entity])
+
+        result = await pipeline.run([_make_fragment()])
+        assert result.entities_created == 0
+        assert result.errors == []
+        entity_resolver.resolve.assert_not_called()
+
 
 # ===================================================================
 # Claim integration
@@ -477,6 +488,38 @@ class TestRelationIntegration:
         result = await pipeline.run([_make_fragment()])
         assert result.relations_created == 0
         assert any("Unknown1" in e or "Unknown2" in e for e in result.errors)
+
+    @pytest.mark.parametrize("relation_type", ["INSTANCE_OF", "GENERALIZES"])
+    async def test_accepts_abstraction_relation_types_from_extraction(
+        self, pipeline, extraction_engine, entity_resolver, graph_store, relation_type
+    ):
+        alice = _make_entity(name="Alice", type="Agent")
+        bob = _make_entity(name="Bob", type="Agent")
+        relation = _make_relation(
+            from_entity="Alice", to_entity="Bob", relation_type=relation_type
+        )
+        extraction_engine.extract.return_value = ExtractionResult(
+            entities=[alice, bob],
+            relations=[relation],
+        )
+
+        async def resolve_side_effect(entity, existing):
+            return ResolutionCandidate(
+                entity_name=entity.name,
+                existing_node_id=None,
+                existing_name=None,
+                score=0.0,
+                action=ResolutionAction.create_new,
+                method="level_1",
+            )
+
+        entity_resolver.resolve.side_effect = resolve_side_effect
+        node_ids = iter(["alice-id", "bob-id"])
+        graph_store.create_node.side_effect = lambda node: next(node_ids)
+
+        result = await pipeline.run([_make_fragment()])
+        assert result.relations_created == 1
+        assert not any(f"Unknown relation type '{relation_type}'" in e for e in result.errors)
 
 
 # ===================================================================
