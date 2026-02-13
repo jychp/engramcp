@@ -94,12 +94,21 @@ _REL_TYPE_TO_MODEL: dict[str, type[RelationshipBase]] = {
     "OBSERVED_BY": ObservedBy,
     "MENTIONS": Mentions,
     "CONCERNS": Concerns,
+    "GENERALIZES": Generalizes,
+    "INSTANCE_OF": InstanceOf,
 }
 
 # Default entity constructor kwargs
 _ENTITY_DEFAULTS: dict[str, dict] = {
     "Agent": {"type": AgentType.person},
     "Artifact": {"type": ArtifactType.document},
+}
+
+_NON_ENTITY_TYPE_HINTS = set(_CLAIM_TYPE_TO_MODEL.keys()) | {
+    "Pattern",
+    "Concept",
+    "Rule",
+    "Source",
 }
 
 
@@ -300,6 +309,10 @@ class ConsolidationPipeline:
     ) -> None:
         for entity in extraction.entities:
             if entity.type not in _ENTITY_TYPE_TO_MODEL:
+                # LLM extraction can occasionally emit claim/derived node types
+                # in the entity channel; skip those as non-fatal schema drift.
+                if entity.type in _NON_ENTITY_TYPE_HINTS:
+                    continue
                 result.errors.append(
                     f"Unknown entity type '{entity.type}', skipping entity '{entity.name}'"
                 )

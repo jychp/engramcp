@@ -88,7 +88,21 @@ Core runtime configuration is code-based (dataclasses). MCP transport auth is op
 - Audit settings: `src/engramcp/config.py` (`AuditConfig`)
 - MCP auth setting: `MCP_AUTH_KEY` environment variable (optional, recommended for HTTP deployments)
   - Uses static bearer token auth (`Authorization: Bearer <MCP_AUTH_KEY>`)
+  - Optional token metadata for authz:
+    - `MCP_AUTH_SCOPES` (comma-separated; default `engramcp:all`)
+    - `MCP_AUTH_ROLE` (optional role claim)
   - Read when `engramcp.server` is imported (restart/reload process after changing it)
+- MCP authorization setting: `MCP_AUTHZ_ENABLED` environment variable (optional, default disabled)
+  - When enabled, tool/action policies are scope-driven
+  - Built-in role mapping:
+    - `viewer` -> `engramcp:memory:read`
+    - `editor` -> `engramcp:memory:read`, `engramcp:memory:write`, `engramcp:memory:correct`
+    - `admin` -> all editor scopes + `engramcp:memory:admin`
+  - Tool/action requirements:
+    - `send_memory` -> `engramcp:memory:write`
+    - `get_memory` -> `engramcp:memory:read`
+    - `correct_memory` (contest/annotate/reclassify) -> `engramcp:memory:correct`
+    - `correct_memory` (merge_entities/split_entity) -> `engramcp:memory:admin`
 
 Working memory must be configured before using tools:
 

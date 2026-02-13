@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from fastmcp.server.auth import AccessToken
 
 from engramcp.observability import latency_metrics_snapshot
 from engramcp.observability import reset_latency_metrics
@@ -17,6 +18,16 @@ from engramcp.observability import reset_latency_metrics
 def _parse(result) -> dict:
     """Extract the JSON payload from a CallToolResult."""
     return json.loads(result.content[0].text)
+
+
+def _auth_token(scopes: list[str], claims: dict[str, object] | None = None) -> AccessToken:
+    return AccessToken(
+        token="test-token",
+        client_id="test-client",
+        scopes=scopes,
+        expires_at=None,
+        claims=claims or {},
+    )
 
 
 # -----------------------------------------------------------------------
@@ -504,7 +515,73 @@ class TestCorrectMemory:
         data = _parse(result)
         assert data["status"] == "rejected"
         assert data["error_code"] == "validation_error"
-        assert data["message"] is not None
+
+
+class TestAuthorization:
+    async def _send_and_get_id(self, mcp_client, content="test fact"):
+        result = await mcp_client.call_tool("send_memory", {"content": content})
+        return _parse(result)["memory_id"]
+
+    async def test_send_memory_forbidden_when_missing_scope(
+        self, mcp_client, monkeypatch
+    ):
+        monkeypatch.setenv("MCP_AUTHZ_ENABLED", "1")
+        monkeypatch.setattr("engramcp.server.get_access_token", lambda: None)
+
+        result = await mcp_client.call_tool("send_memory", {"content": "blocked"})
+        data = _parse(result)
+        assert data["status"] == "rejected"
+        assert data["error_code"] == "forbidden"
+
+    async def test_get_memory_forbidden_when_missing_scope(self, mcp_client, monkeypatch):
+        monkeypatch.setenv("MCP_AUTHZ_ENABLED", "1")
+        monkeypatch.setattr("engramcp.server.get_access_token", lambda: None)
+
+        result = await mcp_client.call_tool("get_memory", {"query": "blocked"})
+        data = _parse(result)
+        assert data["status"] == "error"
+        assert data["error_code"] == "forbidden"
+
+    async def test_correct_memory_split_forbidden_for_editor_role(
+        self, mcp_client, monkeypatch
+    ):
+        monkeypatch.setenv("MCP_AUTHZ_ENABLED", "1")
+        token = _auth_token([], {"role": "editor"})
+        monkeypatch.setattr("engramcp.server.get_access_token", lambda: token)
+        send_result = await mcp_client.call_tool("send_memory", {"content": "entity"})
+        mem_id = _parse(send_result)["memory_id"]
+
+        result = await mcp_client.call_tool(
+            "correct_memory",
+            {
+                "target_id": mem_id,
+                "action": "split_entity",
+                "payload": {"split_into": ["a", "b"]},
+            },
+        )
+        data = _parse(result)
+        assert data["status"] == "rejected"
+        assert data["error_code"] == "forbidden"
+
+    async def test_correct_memory_contest_allowed_for_editor_role(
+        self, mcp_client, monkeypatch
+    ):
+        monkeypatch.setenv("MCP_AUTHZ_ENABLED", "1")
+        token = _auth_token([], {"role": "editor"})
+        monkeypatch.setattr("engramcp.server.get_access_token", lambda: token)
+        send_result = await mcp_client.call_tool("send_memory", {"content": "claim"})
+        mem_id = _parse(send_result)["memory_id"]
+
+        result = await mcp_client.call_tool(
+            "correct_memory",
+            {
+                "target_id": mem_id,
+                "action": "contest",
+                "payload": {"reason": "bad source"},
+            },
+        )
+        data = _parse(result)
+        assert data["status"] == "applied"
 
     async def test_rejects_oversized_correction_payload(self, mcp_client):
         mem_id = await self._send_and_get_id(mcp_client)

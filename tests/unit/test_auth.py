@@ -6,6 +6,8 @@ import pytest
 
 from engramcp.auth import APIKeyVerifier
 from engramcp.auth import create_mcp_auth
+from engramcp.auth import get_mcp_auth_role
+from engramcp.auth import get_mcp_auth_scopes
 from engramcp.auth import get_mcp_auth_key
 
 
@@ -74,3 +76,49 @@ class TestCreateMcpAuth:
         monkeypatch.delenv("MCP_AUTH_KEY", raising=False)
 
         assert create_mcp_auth() is None
+
+    async def test_uses_configured_scopes_and_role_claim(self, monkeypatch) -> None:
+        monkeypatch.setenv("MCP_AUTH_KEY", "test-auth-key")
+        monkeypatch.setenv(
+            "MCP_AUTH_SCOPES", "engramcp:memory:read,engramcp:memory:write"
+        )
+        monkeypatch.setenv("MCP_AUTH_ROLE", "editor")
+
+        verifier = create_mcp_auth()
+        assert verifier is not None
+
+        token = await verifier.verify_token("test-auth-key")
+        assert token is not None
+        assert token.scopes == ["engramcp:memory:read", "engramcp:memory:write"]
+        assert token.claims == {"role": "editor"}
+
+
+class TestMcpAuthScopes:
+    def test_returns_default_scope_when_missing(self, monkeypatch) -> None:
+        monkeypatch.delenv("MCP_AUTH_SCOPES", raising=False)
+
+        assert get_mcp_auth_scopes() == ["engramcp:all"]
+
+    def test_parses_csv_scope_list(self, monkeypatch) -> None:
+        monkeypatch.setenv(
+            "MCP_AUTH_SCOPES", " engramcp:memory:read , engramcp:memory:write "
+        )
+
+        assert get_mcp_auth_scopes() == [
+            "engramcp:memory:read",
+            "engramcp:memory:write",
+        ]
+
+
+class TestMcpAuthRole:
+    def test_returns_none_when_role_missing(self, monkeypatch) -> None:
+        monkeypatch.delenv("MCP_AUTH_ROLE", raising=False)
+        assert get_mcp_auth_role() is None
+
+    def test_returns_none_when_role_blank(self, monkeypatch) -> None:
+        monkeypatch.setenv("MCP_AUTH_ROLE", "  ")
+        assert get_mcp_auth_role() is None
+
+    def test_returns_trimmed_role(self, monkeypatch) -> None:
+        monkeypatch.setenv("MCP_AUTH_ROLE", " admin ")
+        assert get_mcp_auth_role() == "admin"
